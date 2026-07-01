@@ -1,11 +1,11 @@
 """2000-round long-term validation with adjusted parameters."""
 import sys, json, pathlib, logging
 logging.disable(logging.WARNING)
-sys.path.insert(0, pathlib.Path(__file__).resolve().parent.as_posix())
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from hivemind.config import HiveMindConfig
 from hivemind.mother import MotherModule
-import visualize as viz
+from visualize import plot_energy_curves
 
 config = HiveMindConfig(
     max_rounds=2000,
@@ -31,7 +31,7 @@ with open(out / "summary.json", "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=2, ensure_ascii=False)
 
 # Generate charts
-viz.plot_energy_curves(logs, summary, str(out))
+plot_energy_curves(logs, summary, str(out))
 
 print("=" * 60)
 print("HiveMind 2000-Round Long-Term Validation")

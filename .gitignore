@@ -27,6 +27,7 @@ Thumbs.db
 # Experiment temp files (keep summary.json and PNGs)
 round_logs.json
 checkpoints.json
+debug.log
 
 # WorkBuddy internal
 .workbuddy/

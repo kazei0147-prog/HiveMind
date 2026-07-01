@@ -160,11 +160,60 @@ HiveMind 不是对现有 AI 范式的改良，而是一次**侧向偏移**：
 - [x] 能量经济学模型
 - [x] 保底与遗忘协议
 - [x] 通信与调度框架
-- [x] 最小可行原型（MVP）代码 → [`hivemind_mvp/`](hivemind_mvp/)
-- [x] 单机运行测试 → 4 组实验已完成，详见 [`EXPERIMENT_LOG.md`](hivemind_mvp/EXPERIMENT_LOG.md)
+- [x] 最小可行原型（MVP）代码 → [`src/hivemind/`](src/hivemind/)
+- [x] 单机运行测试 → 4 组实验已完成，详见 [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
 - [ ] 保守型（beta）模块实现 — 已确认为结构性必需
 - [ ] 离线环境适配
 - [ ] 实际场景验证
+
+---
+
+## 七、快速开始（MVP）
+
+```bash
+# 安装
+pip install -e .          # 通过 pyproject.toml 安装
+pip install matplotlib    # 可选，用于图表生成
+
+# 运行仿真（200轮默认参数）
+cd src && python runner.py --rounds 200 --target 50
+
+# 自定义参数
+cd src && python runner.py --rounds 500 --target 50 --noise 15 \
+    --adoption-reward 10 --inference-cost 6 --energy-floor 5 \
+    --decay-rate 0.05 --output ./my_experiment
+
+# 2000轮长期验证（预设脚本）
+cd src && python longterm_validation.py
+
+# 生成图表
+cd src && python visualize.py --input ../experiments/exp01_default_convergence \
+    --output ../experiments/exp01_default_convergence
+```
+
+核心模块一览（[`src/hivemind/`](src/hivemind/)）：
+
+| 文件 | 模块 | 说明 |
+|------|------|------|
+| `config.py` | HiveMindConfig | 可调参数 |
+| `energy.py` | EnergyWallet | 能量会计（支出/收入/借贷/地板） |
+| `submodule.py` | Alpha + Gamma | 激进型（1.3x偏见）+ 反共识型 |
+| `consensus.py` | ConsensusTracker | 共识追踪（值 + 置信度 + 历史） |
+| `fallback.py` | FallbackController | 保底机制（影子候选） |
+| `dream.py` | DreamMechanism | 梦境（蒸馏 + 杂交） |
+| `death.py` | DeathProtocol | 临终协议（遗产胶囊） |
+| `mother.py` | MotherModule | 母模块调度中心 |
+
+实验记录（[`experiments/`](experiments/)）：
+
+| 目录 | 实验 | 轮数 | 关键发现 |
+|------|------|------|----------|
+| `exp01_default_convergence` | 默认参数 | 200 | 完美收敛（误差 0.14） |
+| `exp02_stress_test` | 高噪声+低奖励 | 200 | 双模块破产，系统崩溃 |
+| `exp03_longterm_validation` | 中等压力 | 2000 | alpha 第38轮成僵尸，结构性缺陷 |
+| `exp04_alpha_rescue` | 调参救活 alpha | 500 | alpha 第65轮仍死，确认缺 beta |
+
+完整实验报告见 [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)。
 
 ---
 
