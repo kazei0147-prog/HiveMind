@@ -1,0 +1,98 @@
+{
+  "simulation_rounds": 200,
+  "target_value": 50.0,
+  "final_consensus": 41.999457560663615,
+  "final_error": 8.000542439336385,
+  "final_confidence": 0.017352296524040658,
+  "alive_modules": 2,
+  "total_proposals": 32,
+  "total_energy_earned": 80.0,
+  "total_energy_spent": 265.6,
+  "fallback_count": 142,
+  "dream_count": 1,
+  "death_count": 0,
+  "module_summaries": {
+    "alpha_aggressive": {
+      "alive": true,
+      "legacy_capsule": null,
+      "wallet": {
+        "balance": 7.200000000000003,
+        "total_earned": 40.0,
+        "total_spent": 132.8,
+        "loan_balance": 0.0,
+        "loan_rounds_remaining": 0
+      },
+      "adoption_count": 16,
+      "total_rounds": 16,
+      "avg_proposal": 49.26767082762265
+    },
+    "gamma_counter": {
+      "alive": true,
+      "legacy_capsule": null,
+      "wallet": {
+        "balance": 7.200000000000003,
+        "total_earned": 40.0,
+        "total_spent": 132.8,
+        "loan_balance": 0.0,
+        "loan_rounds_remaining": 0
+      },
+      "adoption_count": 16,
+      "total_rounds": 16,
+      "avg_proposal": 37.22103386750942
+    }
+  },
+  "fallback_summary": {
+    "fallback_count": 24,
+    "shadow_state": "active",
+    "last_fallback": {
+      "round": 197,
+      "consensus_before": 41.999457560663615,
+      "confidence_before": 0.018436510854364103,
+      "shadow_value": 75.86801974189895
+    }
+  },
+  "dream_summary": {
+    "dream_count": 1,
+    "distilled_rules_count": 2,
+    "last_dream": {
+      "round": 10,
+      "dream_id": 1,
+      "distilled_rules": [
+        "[alpha_aggressive] avg=45.98, trend=-45.25, volatility=120.77",
+        "[gamma_counter] avg=34.99, trend=5.44, volatility=90.94"
+      ],
+      "hybrids": [
+        {
+          "module1": "alpha_aggressive",
+          "module2": "gamma_counter",
+          "weight": 0.6597024822991076,
+          "hybrid_value": 59.492642184353734,
+          "gain": 0.14986588184314087,
+          "useful": true
+        },
+        {
+          "module1": "gamma_counter",
+          "module2": "alpha_aggressive",
+          "weight": 0.5388625463516272,
+          "hybrid_value": 59.67897694066777,
+          "gain": -0.04396216856305557,
+          "useful": false
+        }
+      ]
+    }
+  },
+  "death_summary": {
+    "total_deaths": 0,
+    "archaeology_count": 0,
+    "discarded_count": 0,
+    "death_events": []
+  },
+  "consensus_summary": {
+    "current_value": 41.999457560663615,
+    "current_confidence": 0.017352296524040658,
+    "change_rate": 0.58578962150661,
+    "shadow_active": true,
+    "shadow_value": 81.20655185571617,
+    "history_length": 200
+  }
+}

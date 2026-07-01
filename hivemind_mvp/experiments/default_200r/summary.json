@@ -1,0 +1,76 @@
+{
+  "simulation_rounds": 200,
+  "target_value": 50.0,
+  "final_consensus": 50.13906878931282,
+  "final_error": 0.13906878931282307,
+  "final_confidence": 1.0,
+  "alive_modules": 2,
+  "total_proposals": 400,
+  "total_energy_earned": 3000.0,
+  "total_energy_spent": 2142.5,
+  "fallback_count": 0,
+  "dream_count": 39,
+  "death_count": 0,
+  "module_summaries": {
+    "alpha_aggressive": {
+      "alive": true,
+      "legacy_capsule": null,
+      "wallet": {
+        "balance": 534.0,
+        "total_earned": 1500.0,
+        "total_spent": 1066.0,
+        "loan_balance": 0.0,
+        "loan_rounds_remaining": 0
+      },
+      "adoption_count": 200,
+      "total_rounds": 200,
+      "avg_proposal": 64.62843760224338
+    },
+    "gamma_counter": {
+      "alive": true,
+      "legacy_capsule": null,
+      "wallet": {
+        "balance": 523.5,
+        "total_earned": 1500.0,
+        "total_spent": 1076.5,
+        "loan_balance": 0.0,
+        "loan_rounds_remaining": 0
+      },
+      "adoption_count": 200,
+      "total_rounds": 200,
+      "avg_proposal": 51.90913817841265
+    }
+  },
+  "fallback_summary": {
+    "fallback_count": 0,
+    "shadow_state": "idle",
+    "last_fallback": null
+  },
+  "dream_summary": {
+    "dream_count": 39,
+    "distilled_rules_count": 78,
+    "last_dream": {
+      "round": 200,
+      "dream_id": 39,
+      "distilled_rules": [
+        "[alpha_aggressive] avg=64.63, trend=-29.05, volatility=75.88",
+        "[gamma_counter] avg=51.91, trend=3.11, volatility=51.20"
+      ],
+      "hybrids": []
+    }
+  },
+  "death_summary": {
+    "total_deaths": 0,
+    "archaeology_count": 0,
+    "discarded_count": 0,
+    "death_events": []
+  },
+  "consensus_summary": {
+    "current_value": 50.13906878931282,
+    "current_confidence": 1.0,
+    "change_rate": 0.11098989100761672,
+    "shadow_active": false,
+    "shadow_value": null,
+    "history_length": 200
+  }
+}
