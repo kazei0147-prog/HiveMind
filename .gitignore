@@ -31,3 +31,6 @@ debug.log
 
 # WorkBuddy internal
 .workbuddy/
+
+# Auto-generated scripts (broken)
+*.ps1
