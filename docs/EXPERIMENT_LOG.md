@@ -153,6 +153,7 @@ See experiments 1-4 above for full v0.1 results.
 > v0.1 experiments were conducted using the HiveMind v0.1 MVP prototype (alpha + gamma only).  
 > v0.2 experiments use the three-module architecture (alpha + beta + gamma).  
 > v0.3 experiments use the four-module architecture (alpha + beta + gamma_counter + delta_composite).  
+> **v0.3.1 role swap**: gamma→外交官(diplomat), delta→纠错者(counter_consensus). Current code uses module IDs `gamma_diplomat` + `delta_counter`.  
 > All charts and raw data are included in the `experiments/` subdirectories.
 
 ---
@@ -160,26 +161,32 @@ See experiments 1-4 above for full v0.1 results.
 ## v0.3 Experiments (alpha + beta + gamma + delta, four-module architecture)
 
 **Date**: 2026-07-02  
-**Version**: v0.3 — Added delta_composite (复合型外交官) + gamma 继续当反共识
+**Version**: v0.3 — 四模块架构（alpha + beta + gamma + delta）
 
-### v0.3 Key Changes
+> ⚠️ **v0.3.1 角色互换（重要）**：本节实验（exp06/06b）在角色互换**之前**运行，
+> 当时代码为 `gamma_counter`（反共识）+ `delta_composite`（复合型外交官）。
+> v0.3.1 已按原始设计图将角色对齐：
+> - **γ = 外交官（gamma_diplomat）**：30%激进/30%保守/40%中性 随机混合策略
+> - **δ = 纠错者（delta_counter）**：逆主流而行，纠正偏移
+> 实验数据本身不变（仅命名调换），下文"gamma/反共识""delta/复合型"指互换前的运行配置。
 
-1. **新增模块 — delta_composite (复合型外交官)**:
-   - 原始设计文档中 γ 是复合型，δ 是反共识型
-   - 但 gamma 在 v0.1/v0.2 所有实验中已承担反共识角色
-   - 为保持前后数据连续性，gamma 继续当反共识，delta 取复合型角色
-   - 即 γ/δ 的角色做了调换，但不影响架构逻辑
+### v0.3 Key Changes（互换前配置）
 
-2. **delta_composite 模块设计**:
+1. **新增第四模块（v0.3 时为 delta_composite 复合型外交官）**:
    - 每轮随机选择策略：30% aggressive / 30% conservative / 40% neutral
    - 错峰采集：60%最新观测 + 40%上一轮观测（加权混合视角）
    - 目的：防止任何单一偏见主导系统
 
-3. **Module list (v0.3)**:
-   - alpha (aggressive): 高偏见新信号追逐者
-   - beta (conservative): 共识锚定守门人
-   - gamma (counter_consensus): 反共识纠错者 — **延续 v0.1/v0.2**
-   - delta (composite): 混合策略外交官 — **新增**
+2. **v0.3.1 角色对齐（当前代码架构）**:
+   - γ（外交官 / diplomat）：由 CompositeModule 实现，随机混合策略
+   - δ（纠错者 / counter_consensus）：由 CounterConsensusModule 实现，逆主流而行
+   - 与原始设计图（α 开拓者 | β 守门人 | γ 外交官 | δ 纠错者）一致
+
+3. **Module list（当前架构 v0.3.1+）**:
+   - alpha (aggressive): 开拓者，偏好新信号，倾向高估
+   - beta (conservative): 守门人，锚定共识，倾向低估
+   - gamma (diplomat): 外交官，复合型混合策略，桥梁角色
+   - delta (counter_consensus): 纠错者，逆主流而行，纠正偏移
 
 ---
 
@@ -265,9 +272,9 @@ See experiments 1-4 above for full v0.1 results.
 2. **Module personality preserved in proposals**:
    - alpha avg=65.21 (高偏见追逐者) ✓
    - beta avg=46.41 (低偏见锚定者) ✓
-   - gamma avg=50.73 (反共识型，在目标附近振荡) ✓
-   - delta avg=53.73 (复合型外交官，略高于目标 — 30%激进+40%中性=微上行偏见) ✓
-   - **delta_composite 是外交官**：其平均值介于 alpha 和 beta 之间，符合设计意图
+   - gamma avg=50.73 (反共识型，在目标附近振荡) ✓ *[v0.3.1 后此角色归 delta]*
+   - delta avg=53.73 (复合型外交官，略高于目标 — 30%激进+40%中性=微上行偏见) ✓ *[v0.3.1 后此角色归 gamma]*
+   - **exp06b 运行于互换前**：当时 delta 是外交官（均值介于 alpha/beta 之间），gamma 是反共识型
 
 3. **Convergence quality is EXCELLENT**:
    - Error range across 2000 rounds: 0.03 to 5-10, average ~5
@@ -284,8 +291,8 @@ See experiments 1-4 above for full v0.1 results.
 
 **Architectural Validation**:
 - v0.3 four-module architecture is **structurally sound**
-- delta_composite (复合型外交官) integrates without disrupting the system
-- gamma 继续当反共识，保持了与 v0.1/v0.2 实验数据的前后连续性
+- 第四模块（v0.3 时为复合型外交官）integrates without disrupting the system
+- v0.3.1 已按设计图将 γ/δ 角色互换，与 v0.1/v0.2 实验数据保持连续性
 - The system can scale to 4+ modules as long as the reward economy scales with module count
 
 **Files**: `experiments/exp06b_four_module_favorable/`
@@ -296,8 +303,8 @@ See experiments 1-4 above for full v0.1 results.
 
 ### Achievements
 1. **四模块架构验证**: 所有 4 模块在有利经济条件下存活 2000 轮
-2. **delta_composite 角色成立**: 复合型外交官平均值介于 alpha 和 beta 之间（53.73），正是设计意图
-3. **数据连续性保持**: gamma 继续当反共识，exp01-05b 的数据与 exp06-06b 完全可对比
+2. **第四模块（v0.3 时为复合型外交官）角色成立**: 平均值介于 alpha 和 beta 之间（53.73），正是设计意图
+3. **数据连续性保持**: exp01-05b 的数据与 exp06-06b 完全可对比（v0.3.1 角色互换仅改命名，未改实验数据）
 4. **Convergence not degraded by adding complexity**: 加模块不破坏收敛
 
 ### Insights

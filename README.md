@@ -45,10 +45,11 @@ HiveMind 是一套**不依赖中心化大模型、不依赖持续高算力投入
 
 **子模块（认知节点种群）**
 
-- 激进型
-- 保守型
-- 反共识型
-- 懒加载型
+- 激进型（α 开拓者）
+- 保守型（β 守门人）
+- 外交官型（γ 复合型混合策略）
+- 反共识型（δ 纠错者）
+- 懒加载型（ε 幸存者）
 - （可扩展）
 
 **外部接口**
@@ -168,8 +169,8 @@ HiveMind 不是对现有 AI 范式的改良，而是一次**侧向偏移**：
 - [x] v0.2 修复置信度衰减 bug（累积衰减+部分恢复）
 - [x] v0.2 修复奖励分配 bug（比例分配）
 - [x] v0.2 三模块 2000 轮验证 → 2 组实验已完成，详见 [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
-- [x] v0.3 复合型（delta）模块实现（30%激进/30%保守/40%中性混合策略）
-- [x] v0.3 gamma 继续当反共识（保持 v0.1/v0.2 数据连续性），delta 取复合型角色
+- [x] v0.3 第四模块 delta 实现（反共识/纠错者角色）
+- [x] v0.3.1 gamma/delta 角色对齐设计图：γ=外交官（复合型混合策略）、δ=纠错者（反共识）
 - [x] v0.3 四模块 2000 轮验证 → 2 组实验已完成
 - [x] v0.4 知识蒸馏引擎（8维特征 + 逻辑回归 + 512 bytes checkpoint）
 - [x] v0.4 梦境升级为训练管道（8000 样本 / 82 轮蒸馏 / loss=4.35e-5）
@@ -228,7 +229,7 @@ cd src && python visualize.py --input ../experiments/exp01_default_convergence \
 | `exp05_beta_validation` | v0.2 三模块中等压力 | 2000 | 修bug成功（fallback 12次），但低奖励下beta/gamma 死 |
 | `exp05b_beta_favorable` | v0.2 三模块高奖励 | 2000 | **3模块全部存活2000轮** |
 | `exp06_four_module_validation` | v0.3 四模块中等奖励 | 2000 | 4模块全活但都挣扎（reward=15不够分） |
-| `exp06b_four_module_favorable` | v0.3 四模块高奖励 | 2000 | **4模块全部健康存活2000轮**，gamma延续v0.1/v0.2命名 |
+| `exp06b_four_module_favorable` | v0.3 四模块高奖励 | 2000 | **4模块全部健康存活2000轮**（注：此实验在 v0.3.1 角色互换前运行，当时 gamma=反共识、delta=复合型） |
 | `exp07_distillation_validation` | v0.4 蒸馏引擎验证 | 2000 | 8000样本 82轮蒸馏 loss=4.35e-5 checkpoint=512 bytes |
 
 完整实验报告见 [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)。
