@@ -156,7 +156,7 @@ HiveMind 不是对现有 AI 范式的改良，而是一次**侧向偏移**：
 
 ## 六、当前状态
 
-**v0.4：四模块架构 + 知识蒸馏引擎。**
+**v0.5：五模块架构 + 好奇心动因 + 主动交互表达层。**
 
 - [x] 核心机制定义
 - [x] 能量经济学模型
@@ -174,6 +174,9 @@ HiveMind 不是对现有 AI 范式的改良，而是一次**侧向偏移**：
 - [x] v0.3 四模块 2000 轮验证 → 2 组实验已完成
 - [x] v0.4 知识蒸馏引擎（8维特征 + 逻辑回归 + 512 bytes checkpoint）
 - [x] v0.4 梦境升级为训练管道（8000 样本 / 82 轮蒸馏 / loss=4.35e-5）
+- [x] v0.5 第五模块 epsilon 幸存者（懒加载休眠策略）
+- [x] v0.5 好奇心动因（|观测-共识|/|共识| > 阈值 → 触发惊讶信号）
+- [x] v0.5 主动交互表达层（模块个性化表达 + 母模块调度组合）
 - [ ] 外部数据接入（DataSource 抽象层）
 - [ ] 蒸馏反馈闭环（模型反向指导共识权重）
 - [ ] 离线环境适配
@@ -210,8 +213,8 @@ cd src && python visualize.py --input ../experiments/exp01_default_convergence \
 |------|------|------|
 | `config.py` | HiveMindConfig | 可调参数 |
 | `energy.py` | EnergyWallet | 能量会计（支出/收入/借贷/挣扎线） |
-| `submodule.py` | Alpha + Beta + Gamma + Delta | 激进型 + 保守型 + 外交官（混合策略）+ 纠错者（反共识）|
-| `distill.py` | DistilledModel + DistillationEngine | v0.4 知识蒸馏引擎（特征提取 + 逻辑回归 + checkpoint）|
+| `submodule.py` | Alpha + Beta + Gamma + Delta + Epsilon | 开拓者 + 守门人 + 外交官 + 纠错者 + 幸存者（懒加载）|
+| `distill.py` | DistilledModel + DistillationEngine | 知识蒸馏引擎（特征提取 + 逻辑回归 + checkpoint）|
 | `consensus.py` | ConsensusTracker | 共识追踪（值 + 累积置信度衰减 + 历史） |
 | `fallback.py` | FallbackController | 保底机制（影子候选） |
 | `dream.py` | DreamMechanism | 梦境（蒸馏 + 杂交） |
@@ -231,6 +234,7 @@ cd src && python visualize.py --input ../experiments/exp01_default_convergence \
 | `exp06_four_module_validation` | v0.3 四模块中等奖励 | 2000 | 4模块全活但都挣扎（reward=15不够分） |
 | `exp06b_four_module_favorable` | v0.3 四模块高奖励 | 2000 | **4模块全部健康存活2000轮**（注：此实验在 v0.3.1 角色互换前运行，当时 gamma=反共识、delta=复合型） |
 | `exp07_distillation_validation` | v0.4 蒸馏引擎验证 | 2000 | 8000样本 82轮蒸馏 loss=4.35e-5 checkpoint=512 bytes |
+| `exp08_five_module_curiosity` | v0.5 五模块+好奇心 | 2000 | 5模块 好奇心584轮触发 表达389轮 epsilon生命周期验证 |
 
 完整实验报告见 [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)。
 
@@ -257,4 +261,4 @@ cd src && python visualize.py --input ../experiments/exp01_default_convergence \
 
 ---
 
-*Last updated: 2026-07-11 (v0.4: knowledge distillation engine)*
+*Last updated: 2026-07-16 (v0.5: epsilon survivor + curiosity drive + expression layer)*
