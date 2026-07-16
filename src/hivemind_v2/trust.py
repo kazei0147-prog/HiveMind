@@ -49,17 +49,17 @@ class TrustEngine:
         error = abs(proposed_value - true_value)
         relative_error = error / max(abs(true_value), 0.01)
         
-        # 信任变化: 误差越小，奖励越大
-        if relative_error < 0.05:       # 误差 < 5% → 强奖励
-            delta = +0.05
-        elif relative_error < 0.10:     # 误差 < 10% → 弱奖励
-            delta = +0.02
-        elif relative_error < 0.20:     # 误差 < 20% → 中性
+        # 信任变化 (v2.0.1: 加大幅度以加速故障检测)
+        if relative_error < 0.05:
+            delta = +0.08
+        elif relative_error < 0.10:
+            delta = +0.04
+        elif relative_error < 0.20:
             delta = 0.0
-        elif relative_error < 0.50:     # 误差 < 50% → 轻罚
-            delta = -0.02
-        else:                           # 严重错误 → 重罚
-            delta = -0.05
+        elif relative_error < 0.50:
+            delta = -0.08
+        else:
+            delta = -0.15
         
         old_trust = self.trust_scores[learner_id]
         self.trust_scores[learner_id] = max(0.01, min(0.99, old_trust + delta))
