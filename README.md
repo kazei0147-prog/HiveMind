@@ -175,8 +175,36 @@ HiveMind 不是对现有 AI 范式的改良，而是一次**侧向偏移**：
 - [x] **v0.6 自适应奖励**（reward × alive_modules / 4，不再手动调参）
 - [x] **v0.6 蒸馏反馈闭环**（模型预测可信度 → 指导奖励分配）
 - [x] **v0.6 多轮 checkpoint 对比**（热启动蒸馏效率提升 2.1×）
+- [x] **v0.6 传感器故障压测**（exp11）→ 暴露"采纳计数信任"根本软肋
+- [x] **v2.0 alpha 学习式共识分支**（`src/hivemind_v2/`）→ CO2 benchmark 误差 31.69→1.07 ppm
 - [ ] 离线环境适配
 - [ ] 实际场景验证
+
+> ⚠️ **v0.6 的诚实复盘**：真实数据（exp09-11）暴露出 v0.1-v0.6 "固定偏见加权平均 + 采纳计数信任" 在漂移/污染数据下不可靠。完整复盘见 [`docs/WHY_HIVEMIND_FAILED.md`](docs/WHY_HIVEMIND_FAILED.md)，重构方向见下方 v2.0 alpha。
+
+---
+
+## 六·五、HiveMind 2.0 alpha（实验性新架构）
+
+> ⚠️ 实验性分支，与 v0.6 主架构（`src/hivemind/`）**并存、不替代**。代码在 [`src/hivemind_v2/`](src/hivemind_v2/)。
+
+v0.6 在真实数据上暴露的根本问题（共识被漂移/污染数据绑架），促成了一次共识机制的彻底重构：
+
+| 维度 | v0.1–v0.6 | v2.0 alpha |
+|------|-----------|------------|
+| 信念来源 | 预设 bias_type（开拓/守门/外交/纠错） | 从经验学**贝叶斯信念**（`learner.py`） |
+| 共识机制 | 固定偏见的加权平均 | **论证评估** ArgumentEvaluator（`argument.py`） |
+| 信任依据 | 采纳计数 adoption_count | **验证精度**（`trust.py`） |
+| 主循环 | 推演→提议→加权→共识 | **预热 + 讨论 + 验证**（`orchestrator.py`） |
+
+**Benchmark（Mauna Loa CO2, 406–432 ppm）：**
+
+| 架构 | 误差 | 结论 |
+|------|------|------|
+| v0.6 | 31.69 ppm | ❌ 固定偏见加权在真实缓变信号上失效 |
+| **v2.0 alpha** | **1.07 ppm** | ✅ 优于移动平均（1.42 ppm） |
+
+目前 v2.0 处于 alpha 验证（单 benchmark 通过），尚未替代主架构。运行：`cd src && python bench_v2.py`。
 
 ---
 
@@ -233,7 +261,8 @@ cd src && python visualize.py --input ../experiments/exp01_default_convergence \
 | `exp07_distillation_validation` | v0.4 蒸馏引擎验证 | 2000 | 8000样本 82轮蒸馏 loss=4.35e-5 checkpoint=512 bytes |
 | `exp08_five_module_curiosity` | v0.5 五模块+好奇心 | 2000 | 5模块 好奇心584轮 表达389轮 epsilon生命周期 |
 | `exp09_real_data_source` | v0.6 真实数据 | 1038 | 全球温度异常数据 4/5存活 自适应奖励 蒸馏反馈 |
-| `exp10_checkpoint_compare` | v0.6 Checkpoint对比 | 1038 | 冷vs热启动 蒸馏效率提升2.1× |
+| `exp10_checkpoint_compare` | v0.6 Checkpoint对比 | 1038 | 冷vs热启动 蒸馏效率提升2.1×（loss 0.0004→0.00019） |
+| `exp11_sensor_fault` | v0.6 传感器故障压测 | 400 | 无外部校验 → 污染数据绑架共识，误差放大~8倍（催生 v2.0） |
 
 完整实验报告见 [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)。
 
@@ -260,4 +289,4 @@ cd src && python visualize.py --input ../experiments/exp01_default_convergence \
 
 ---
 
-*Last updated: 2026-07-16 (v0.6: real data source + adaptive reward + distillation feedback + checkpoint compare)*
+*Last updated: 2026-07-16 (v0.6: real data source + adaptive reward + distillation feedback + checkpoint compare + sensor-fault stress test; v2.0 alpha: learning-based consensus branch, CO2 benchmark 31.69→1.07 ppm)*
