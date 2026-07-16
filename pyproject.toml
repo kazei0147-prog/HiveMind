@@ -4,8 +4,8 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "hivemind"
-version = "0.5.0"
-description = "Energy-economy-based multi-module competitive inference system (v0.5: epsilon survivor + curiosity + expression)"
+version = "0.6.0"
+description = "Energy-economy-based multi-module competitive inference system (v0.6: real data source + adaptive reward + distillation feedback)"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]

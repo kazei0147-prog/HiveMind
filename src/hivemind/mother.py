@@ -1,10 +1,7 @@
 """
-母模块 - HiveMind 调度中心
+母模块 - HiveMind 调度中心 v0.6
 
-母模块整合：调度器、能量会计、保底控制器。
-主循环：收集提议 → 评估 → 分发能量 → 保底检查 → 梦境触发 → 临终处理。
-
-v0.4 新增：每轮记录提案到 DistillationEngine，模拟结束后导出 checkpoint。
+v0.6 新增：DataSource 抽象层 + 自适应奖励 + 蒸馏反馈闭环
 """
 
 import random
@@ -20,6 +17,7 @@ from .consensus import ConsensusTracker, ConsensusState
 from .fallback import FallbackController
 from .dream import DreamMechanism
 from .death import DeathProtocol
+from .datasource import DataSource, SyntheticSource
 
 logger = logging.getLogger("hivemind.mother")
 
@@ -46,9 +44,15 @@ class MotherModule:
     └→ 下一轮
     """
 
-    def __init__(self, config: HiveMindConfig):
+    def __init__(self, config: HiveMindConfig, datasource: Optional[DataSource] = None):
         self.config = config
         self.round_num = 0
+
+        # ── v0.6: 数据源 ──
+        self.datasource = datasource or SyntheticSource(
+            target=config.target_value,
+            noise=config.observation_noise,
+        )
 
         # ── 能量会计 ──
         self.system_wallet = EnergyWallet(
@@ -101,11 +105,15 @@ class MotherModule:
 
     def _generate_observation(self) -> float:
         """
-        生成一轮观测数据（带噪声的目标值）。
-        模拟外部数据采集：真实值 + 噪声。
+        v0.6: 从数据源获取观测值。
+        如果数据源返回 None（耗尽且不循环），回退到合成数据。
         """
-        noise = random.gauss(0, self.config.observation_noise)
-        return self.config.target_value + noise
+        val = self.datasource.fetch()
+        if val is None:
+            # 数据耗尽回退
+            noise = random.gauss(0, self.config.observation_noise)
+            return self.config.target_value + noise
+        return val
 
     def _stagger_collection(self) -> dict:
         """
@@ -210,16 +218,32 @@ class MotherModule:
         # ── 4. 评估与采纳 ──
         new_consensus = self.consensus.update(proposals, self.round_num)
 
-        # 分发能量奖励（v0.2: 比例奖励，而非平均共享）
-        # 每个模块按其置信度权重占比分配奖励
-        # 高置信度模块贡献更大 → 赚更多 → 真正的竞争经济
+        # 分发能量奖励（v0.6: 自适应奖励 + 蒸馏反馈）
         if proposals and new_consensus.contributors:
             contributor_proposals = [p for p in proposals if p.module_id in new_consensus.contributors]
             total_weight = sum(p.confidence for p in contributor_proposals)
 
+            # ── v0.6: 自适应奖励 ──
+            # base_reward 随存活模块数自动缩放，避免手动调参
+            alive_count = sum(1 for m in self.modules if m.alive)
+            adaptive_reward = self.config.adoption_reward * (alive_count / 4.0)
+
             for p in contributor_proposals:
                 proportion = p.confidence / total_weight if total_weight > 0 else 1.0 / len(contributor_proposals)
-                individual_reward = self.config.adoption_reward * proportion
+                base_reward = adaptive_reward * proportion
+
+                # ── v0.6: 蒸馏模型反馈 ──
+                # 用蒸馏模型预测模块可信度，作为奖励加成
+                distill_bonus = 1.0
+                if self.config.distill_enabled and self.dream.distiller is not None:
+                    source_module = next((m for m in self.modules if m.module_id == p.module_id), None)
+                    if source_module is not None:
+                        trust = self.dream.distiller.predict_module_trust(
+                            source_module, self.consensus.current.value
+                        )
+                        distill_bonus = 0.8 + 0.4 * trust  # 范围 [0.8, 1.2]
+
+                individual_reward = base_reward * distill_bonus
                 for m in self.modules:
                     if m.module_id == p.module_id and m.alive:
                         m.on_adopted(individual_reward)

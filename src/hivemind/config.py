@@ -75,6 +75,12 @@ class HiveMindConfig:
     interaction_energy_surplus_ratio: float = 1.5  # 能量盈余触发探索的倍数
     expression_enabled: bool = True            # 是否启用模块表达层
 
+    # ── v0.6 新增 ──
+    adaptive_reward_enabled: bool = True       # 自适应奖励（随模块数缩放）
+    adaptive_reward_base_modules: int = 4      # 自适应奖励的基准模块数
+    distill_feedback_enabled: bool = True      # 蒸馏反馈闭环（模型指导奖励）
+    distill_feedback_range: tuple = (0.8, 1.2)  # 蒸馏反馈的奖励乘数范围
+
     # ── 日志 ──
     log_level: str = "INFO"                    # 日志级别
     log_file: str = ""                         # 日志文件路径（空则stdout）
