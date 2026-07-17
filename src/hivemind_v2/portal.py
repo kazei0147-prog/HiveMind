@@ -167,22 +167,28 @@ class CuriosityEngine:
     """
     决定系统何时主动拉取数据。
 
-    三个触发条件:
+    四个触发条件:
     1. 数据陈旧 — 超过 N 秒没新数据
-    2. 置信度低 — 共识不够确定，需要更多信息
-    3. Learner 请求 — 某 Learner 明确表达"我需要更多数据"
+    2. 置信度低 — 共识不够确定
+    3. Learner 请求 — 某 Learner 高度不确定
+    4. 知识缺口 — 连续 N 轮低置信 → "我需要搜索新信息"
     """
 
     def __init__(
         self,
-        stale_threshold: float = 5.0,     # 秒，超过此值触发数据陈旧
-        confidence_low: float = 0.5,       # 置信度低于此值触发
-        max_poll_interval: float = 0.1,    # 最小轮询间隔（防抖）
+        stale_threshold: float = 5.0,
+        confidence_low: float = 0.5,
+        max_poll_interval: float = 0.1,
+        knowledge_gap_rounds: int = 3,     # 连续低置信轮数 → 触发搜索
     ):
         self.stale_threshold = stale_threshold
         self.confidence_low = confidence_low
         self.max_poll_interval = max_poll_interval
+        self.knowledge_gap_rounds = knowledge_gap_rounds
         self.last_poll_time = 0.0
+        self._low_confidence_streak = 0
+        self._last_search_query = ""
+        self.search_count = 0
 
     def should_poll(
         self,
@@ -192,12 +198,25 @@ class CuriosityEngine:
     ) -> tuple[bool, str]:
         """
         返回: (是否应该拉取数据, 理由)
+          - 返回 ("search", query) 表示需要搜索
         """
         now = time.time()
 
         # 防抖
         if now - self.last_poll_time < self.max_poll_interval:
             return False, ""
+
+        # 条件4: 知识缺口 — 连续低置信触发搜索
+        if last_decision_confidence > 0 and last_decision_confidence < self.confidence_low:
+            self._low_confidence_streak += 1
+        else:
+            self._low_confidence_streak = 0
+
+        if self._low_confidence_streak >= self.knowledge_gap_rounds:
+            self._low_confidence_streak = 0
+            self.search_count += 1
+            # 不在这里生成查询——交给 MotherMind
+            return "search", f"知识缺口 (连续{self.knowledge_gap_rounds}轮低置信)"
 
         # 条件1: 数据陈旧
         if seconds_since_last_data > self.stale_threshold:
@@ -212,11 +231,49 @@ class CuriosityEngine:
         # 条件3: Learner 请求
         for l in learners:
             sigma = l.belief.sigma
-            if sigma > 15.0:  # 高度不确定 = 需要更多数据
+            if sigma > 15.0:
                 self.last_poll_time = now
                 return True, f"{l.learner_id} 高度不确定 (σ={sigma:.1f})"
 
         return False, ""
+
+
+class SearchDataSource(DataSource):
+    """
+    搜索数据源 — 每次 poll() 触发一次 WebSearch。
+
+    不直接执行搜索（WebSearch 是 Agent 工具），而是:
+    1. 设置 pending_query
+    2. 外部通过 push_result() 推送解析后的数值
+    3. poll() 返回缓冲区中的值
+    """
+
+    def __init__(self, max_buffer: int = 50):
+        self._buffer = []
+        self._max_buffer = max_buffer
+        self.pending_query: str | None = None
+
+    def set_query(self, query: str):
+        """设置待搜索的问题——外部监听这个字段执行 WebSearch"""
+        self.pending_query = query
+
+    def push_result(self, value: float):
+        """外部调用: 推送搜索结果中的数值"""
+        self._buffer.append(value)
+        if len(self._buffer) > self._max_buffer:
+            self._buffer = self._buffer[-self._max_buffer:]
+
+    def poll(self) -> float | None:
+        if self._buffer:
+            return self._buffer.pop(0)
+        return None
+
+    def has_more(self) -> bool:
+        return True  # 搜索源永远可用
+
+    @property
+    def name(self) -> str:
+        return "SearchDataSource"
 
 
 # ──────────── Portal — 统一入口 ────────────
