@@ -3,9 +3,9 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "hivemind"
-version = "0.6.0"
-description = "Energy-economy-based multi-module competitive inference system (v0.6: real data source + adaptive reward + distillation feedback)"
+name = "asteriamind"
+version = "2.9.0-alpha"
+description = "AsteriaMind: learning-based multi-agent cognitive system (v2.9: 4-layer autonomous exploration)"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
