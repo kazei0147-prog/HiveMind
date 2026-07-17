@@ -1,18 +1,24 @@
 """
-调度器 - HiveMind 2.3 主循环
+调度器 - HiveMind 2.4 主循环
 
 v2.3 重构:
 - 母模块升级为决策者 (MotherMind) — 综合 Learner 推理做出判断
 - Guard 降级为纯架构保护 — 不再抑制认知过程
 - 讨论流程: 提案 → 母模块深思 → 决策 → 反馈
+
+v2.4 新增:
+- run_continuous() — 持续运行模式，好奇心主动轮询 Portal
+- 系统决定何时看数据，不是被动接收
 """
 import random
+import time
 import logging
 from typing import List, Optional
 from .learner import Learner
 from .trust import TrustEngine
 from .mother import MotherMind, Decision
 from .guard import StabilityGuard
+from .portal import Portal, Emission, CuriosityEngine
 
 logger = logging.getLogger("hivemind_v2.orchestrator")
 
@@ -101,6 +107,97 @@ class HiveMindV2:
             if random.random() < self.verify_ratio:
                 self.verify_buffer.append(val)
 
+        return self._final_summary()
+
+    def run_continuous(
+        self,
+        portal: Portal,
+        max_rounds: int = 0,
+        poll_interval: float = 0.1,
+    ):
+        """
+        v2.4: 持续运行模式 — 好奇心驱动数据拉取。
+
+        系统不是等待被喂数据，而是主动判断:
+        - "我够不够确定？要不要拉新数据来看看？"
+        - "Learner 是不是太不确定了？需要更多信息？"
+        - "太久没新数据了，该去检查一下了？"
+
+        参数:
+        - portal: 统一的 I/O 入口
+        - max_rounds: 最大讨论轮数 (0 = 无限)
+        - poll_interval: 基础轮询间隔（秒）
+        """
+        logger.info(f"持续运行模式启动 — {len(self.learners)} 个 Learner, "
+                    f"预热 {self.warmup_rounds} 轮")
+
+        # Phase 1: 预热
+        warmup_count = 0
+        while warmup_count < self.warmup_rounds and portal.source.has_more():
+            val = portal.poll()
+            if val is None:
+                if not portal.source.has_more():
+                    break
+                time.sleep(poll_interval)
+                continue
+            for learner in self.learners:
+                learner.observe(val)
+            self.round_num += 1
+            warmup_count += 1
+
+        portal.emit_status(f"预热完成 ({self.warmup_rounds} 轮)，进入持续运行")
+
+        # Phase 2: 持续运行
+        last_confidence = 1.0
+        discussions = 0
+
+        while portal.running:
+            # ── 好奇心决定是否拉数据 ──
+            should, reason = portal.curiosity.should_poll(
+                last_confidence,
+                self.learners,
+                portal.seconds_since_last_data(),
+            )
+
+            if should:
+                val = portal.poll()
+                if val is None:
+                    if not portal.source.has_more():
+                        portal.emit_status("数据源已耗尽，等待中...")
+                        time.sleep(poll_interval)
+                        continue
+                else:
+                    self.round_num += 1
+                    for learner in self.learners:
+                        learner.observe(val)
+
+                    # 定期讨论
+                    if self.round_num % self.propose_interval == 0:
+                        log_entry = self._discussion_round(val)
+                        last_confidence = log_entry.get("confidence", 1.0)
+
+                        # 通过 Portal 发射决策
+                        if self.decisions:
+                            portal.emit_decision(self.decisions[-1])
+
+                        discussions += 1
+                        if max_rounds > 0 and discussions >= max_rounds:
+                            portal.emit_status(f"达到最大讨论轮数 ({max_rounds})，停止")
+                            break
+
+                    # 验证
+                    if len(self.verify_buffer) >= 5:
+                        self._verify()
+                        self.verify_buffer = []
+                    if random.random() < self.verify_ratio:
+                        self.verify_buffer.append(val)
+
+            # 无论是否拉数据，保持 Learner 自由思考
+            # (Learner 可以在没有新数据时基于内部窗口继续推演)
+
+            time.sleep(poll_interval)
+
+        portal.emit_status(f"持续运行结束 — {discussions} 次讨论")
         return self._final_summary()
 
     def _discussion_round(self, current_obs: float) -> dict:
