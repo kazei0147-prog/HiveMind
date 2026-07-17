@@ -138,6 +138,8 @@ class ConsoleSink(OutputSink):
             print(f"[{ts}] 📊 {e.content.get('message', '')}")
         elif e.type == "expression":
             print(f"[{ts}] 💬 [{e.content.get('learner', '?')}] {e.content.get('text', '')}")
+        elif e.type == "search":
+            print(f"[{ts}] 🔍 自主搜索: '{e.content.get('query', '?')}'")
 
 
 class LogSink(OutputSink):
@@ -195,18 +197,10 @@ class CuriosityEngine:
         last_decision_confidence: float,
         learners,
         seconds_since_last_data: float,
-    ) -> tuple[bool, str]:
-        """
-        返回: (是否应该拉取数据, 理由)
-          - 返回 ("search", query) 表示需要搜索
-        """
+    ) -> tuple:
         now = time.time()
 
-        # 防抖
-        if now - self.last_poll_time < self.max_poll_interval:
-            return False, ""
-
-        # 条件4: 知识缺口 — 连续低置信触发搜索
+        # 条件4: 知识缺口 — streak计数独立于防抖
         if last_decision_confidence > 0 and last_decision_confidence < self.confidence_low:
             self._low_confidence_streak += 1
         else:
@@ -215,8 +209,12 @@ class CuriosityEngine:
         if self._low_confidence_streak >= self.knowledge_gap_rounds:
             self._low_confidence_streak = 0
             self.search_count += 1
-            # 不在这里生成查询——交给 MotherMind
+            self.last_poll_time = now
             return "search", f"知识缺口 (连续{self.knowledge_gap_rounds}轮低置信)"
+
+        # 防抖 (搜索优先于防抖)
+        if now - self.last_poll_time < self.max_poll_interval:
+            return False, ""
 
         # 条件1: 数据陈旧
         if seconds_since_last_data > self.stale_threshold:
@@ -342,6 +340,14 @@ class Portal:
             timestamp=time.time(),
             type="expression",
             content={"learner": learner_id, "text": text}
+        ))
+
+    def emit_search(self, query: str):
+        """v2.7: 发射搜索请求"""
+        self.emit(Emission(
+            timestamp=time.time(),
+            type="search",
+            content={"query": query}
         ))
 
     def emit_status(self, message: str):
