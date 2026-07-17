@@ -31,7 +31,12 @@ consensus_errors = []
 ma_errors = []
 WINDOW = 10
 
-validator = CrossValidator()
+validator = CrossValidator(
+    isolation_threshold=1.3,
+    isolation_sustain=2,
+    isolation_duration=15,
+    recovery_threshold=1.1,
+)
 
 for i in range(warmup, min(400, len(data))):
     obs = data[i]
@@ -42,14 +47,21 @@ for i in range(warmup, min(400, len(data))):
         chains = [l.propose(obs) for l in learners]
         proposals = {l.learner_id: c.proposal_value for l, c in zip(learners, chains)}
 
-        # === Anchor 2: 方案 B 交叉验证 ===
-        # 旁观者不参与共识辩论、不 learn()——冻结其内部状态，
-        # 纯记录原始信念的预测误差，做因果隔离对照。
-        observer = validator.select_observer([l.learner_id for l in learners])
-        non_observer_chains = [c for c in chains if c.learner_id != observer]
+        # === 隔离状态机：被隔离 learner 始终静默 ===
+        isolated = validator.get_isolated()
+        active_ids = [l.learner_id for l in learners if l.learner_id not in isolated]
+
+        # 旁观者从活跃 learner 中轮询
+        observer = validator.select_observer(active_ids) if active_ids else ""
+
+        # 排除隔离 + 旁观者 → 只留真正参与共识的
+        non_silent_chains = [
+            c for c in chains
+            if c.learner_id not in isolated and c.learner_id != observer
+        ]
         consensus, ranked, method = (
-            evaluator.full_discussion(non_observer_chains)
-            if non_observer_chains else (0.0, [], "no debate (all silent)")
+            evaluator.full_discussion(non_silent_chains)
+            if non_silent_chains else (0.0, [], "no debate (all silent)")
         )
         consensus_errors.append(abs(consensus - obs))
 
@@ -57,13 +69,25 @@ for i in range(warmup, min(400, len(data))):
         for l in learners:
             pid = l.learner_id
             err = abs(proposals[pid] - verify_val)
-            if pid == observer:
-                # 方案 B: 静默期跳过学习，只记录原始信念误差
+            if pid in isolated:
+                # 隔离期：始终静默，不学习
+                validator.record_silent(pid, err)
+            elif pid == observer:
+                # 正常静默期
                 validator.record_silent(pid, err)
             else:
+                # 正常活跃
                 l.learn(verify_val, proposals[pid])
                 trust.verify(pid, proposals[pid], verify_val)
                 validator.record_active(pid, err)
+
+        # 每轮讨论后检查隔离状态
+        events = validator.evaluate_isolation()
+        for ev in events:
+            if ev["action"] == "isolate":
+                print(f"[round {i}] ⚠️  ISOLATE {ev['learner']} (ratio={ev['ratio']:.2f})")
+            elif ev["action"] == "release":
+                print(f"[round {i}] 🔓  RELEASE {ev['learner']} (ratio={ev['ratio']:.2f})")
 
     if i >= warmup + WINDOW:
         ma = sum(data[i-WINDOW:i]) / WINDOW
@@ -87,11 +111,19 @@ print(f'v0.6 HM error on CO2: 31.69 ppm')
 print(f'v2.0 HM error on CO2: {hm_mae:.2f} ppm')
 print(f'Improvement:          {(31.69 - hm_mae):.2f} ppm')
 
-print(f'\n===== CrossValidator 诊断 (Anchor 2: 静默期对照) =====')
-print(f'  {"Learner":20s} {"静默误差":>8s} {"活跃误差":>8s} {"比值":>8s} {"诊断":>20s}')
+print(f'\n===== CrossValidator 诊断 (Anchor 2: 静默期对照 + 隔离) =====')
+print(f'  {"Learner":20s} {"静默误差":>8s} {"活跃误差":>8s} {"比值":>8s} {"诊断":>16s} {"隔离":>6s}')
 for row in validator.diagnosis():
-    tag = {"consensus_drags": "共识在拖累它 ⚠️",
-           "free_rider": "搭共识便车",
-           "independent": "独立准确 ✓",
+    tag = {"consensus_drags": "共识拖累⚠️",
+           "free_rider": "搭便车",
+           "independent": "独立✓",
            "insufficient_data": "数据不足"}.get(row["diagnosis"], row["diagnosis"])
-    print(f'  {row["learner"]:20s} {row["silent_err"]:>7.2f}  {row["active_err"]:>7.2f}  {row["ratio"]:>7.2f}  {tag:>20s}')
+    iso = f"是({row['isolation_rounds']}轮)" if row["isolated"] else "否"
+    print(f'  {row["learner"]:20s} {row["silent_err"]:>7.2f}  {row["active_err"]:>7.2f}  {row["ratio"]:>7.2f}  {tag:>16s}  {iso:>6s}')
+
+# 隔离时间线
+if validator.isolation_summary():
+    print(f'\n===== 隔离时间线 =====')
+    for ev in validator.isolation_summary():
+        act = "ISOLATE" if ev["action"] == "isolate" else "RELEASE"
+        print(f'  round {ev.get("round","?"):>4d}  {act:>8s}  {ev["learner"]:20s}  ratio={ev["ratio"]:.2f}')
