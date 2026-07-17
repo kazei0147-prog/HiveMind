@@ -1,21 +1,22 @@
 """
-调度器 - HiveMind 2.0 的主循环 v2.1
+调度器 - HiveMind 2.3 主循环
 
-v2.1 新增: 差异化初始先验 + 梦境记忆(checkpoint 保存/加载)
+v2.3 重构:
+- 母模块升级为决策者 (MotherMind) — 综合 Learner 推理做出判断
+- Guard 降级为纯架构保护 — 不再抑制认知过程
+- 讨论流程: 提案 → 母模块深思 → 决策 → 反馈
 """
-
 import random
 import logging
 from typing import List, Optional
 from .learner import Learner
-from .argument import ArgumentEvaluator
 from .trust import TrustEngine
-from .dream import DreamStore
+from .mother import MotherMind, Decision
+from .guard import StabilityGuard
 
 logger = logging.getLogger("hivemind_v2.orchestrator")
 
 
-# 预设的学习器个性配置
 PRESET_PERSONAS = [
     {"name": "L1_optimist",    "mu": +3.0, "sigma": 8.0,  "window": 5,  "hint": "天生乐观"},
     {"name": "L2_pessimist",   "mu": -3.0, "sigma": 8.0,  "window": 5,  "hint": "天生悲观"},
@@ -24,10 +25,9 @@ PRESET_PERSONAS = [
     {"name": "L5_adaptable",   "mu":  0.0, "sigma": 10.0, "window": 12, "hint": "灵活，窗口大"},
 ]
 
+
 class HiveMindV2:
-    """
-    HiveMind 2.0 调度器。
-    """
+    """HiveMind 2.3 — 母模块是决策者，子模块是大脑"""
 
     def __init__(
         self,
@@ -40,16 +40,19 @@ class HiveMindV2:
     ):
         if use_personas:
             self.learners = [
-                Learner(
-                    name=p["name"], window_size=p["window"],
-                    initial_mu=p["mu"], initial_sigma=p["sigma"]
-                )
+                Learner(name=p["name"], window_size=p["window"],
+                        initial_mu=p["mu"], initial_sigma=p["sigma"])
                 for p in PRESET_PERSONAS[:n_learners]
             ]
         else:
             self.learners = [Learner(name=f"L{i+1}") for i in range(n_learners)]
-        
-        self.evaluator = ArgumentEvaluator(debate_rounds=debate_rounds)
+
+        # ── v2.3: 母模块升级 ──
+        self.mother = MotherMind(debate_rounds=debate_rounds)
+
+        # ── v2.3: Guard 只做架构保护 ──
+        self.guard = StabilityGuard()
+
         self.trust = TrustEngine()
         for l in self.learners:
             self.trust.register(l.learner_id)
@@ -57,133 +60,115 @@ class HiveMindV2:
         self.warmup_rounds = warmup_rounds
         self.propose_interval = propose_interval
         self.verify_ratio = verify_ratio
-        
+
         self.round_num = 0
         self.data_buffer: List[float] = []
         self.verify_buffer: List[float] = []
         self.consensus_history: List[float] = []
         self.log: List[dict] = []
-
-    def save_dream(self, filepath: str):
-        """v2.1: 保存所有学习器状态到梦境文件"""
-        store = DreamStore()
-        return store.save(self.learners, filepath)
-
-    @classmethod
-    def from_dream(cls, filepath: str, **kwargs) -> "HiveMindV2":
-        """v2.1: 从梦境文件恢复 HiveMind（跳过预热）"""
-        store = DreamStore()
-        states = store.load(filepath)
-        instance = cls(use_personas=False, n_learners=0)  # 空壳
-        instance.learners = DreamStore.restore_learners(states)
-        for l in instance.learners:
-            instance.trust.register(l.learner_id)
-        instance.warmup_rounds = 0  # 不需要预热
-        logger.info(f"从梦境恢复: {len(instance.learners)} 个学习器, 跳过预热")
-        return instance
-
-    def _fetch_data(self, datasource) -> Optional[float]:
-        """从数据源获取下一个观测值"""
-        val = datasource.fetch()
-        if val is None:
-            return None
-        self.data_buffer.append(val)
-        return val
+        self.decisions: List[Decision] = []  # v2.3: 保存所有决策记录
 
     def run(self, datasource, max_rounds: int = 500) -> dict:
-        """
-        完整运行流程。
-        
-        datasource: 数据源（复用 v0.x 的 DataSource 接口）
-        max_rounds: 最大轮数
-        """
-        # === Phase 1: 预热 ===
-        logger.info(f"预热期: {self.warmup_rounds} 轮, {len(self.learners)} 个学习器")
+        """完整运行流程"""
+        # Phase 1: 预热
+        logger.info(f"预热期: {self.warmup_rounds} 轮")
         for _ in range(self.warmup_rounds):
-            val = self._fetch_data(datasource)
-            if val is None:
-                break
-            # 预热期: 学习器只观察，不讨论
+            val = self._fetch(datasource)
+            if val is None: break
             for learner in self.learners:
                 learner.observe(val)
             self.round_num += 1
-        
-        # === Phase 2: 运行 ===
+
+        # Phase 2: 运行
         logger.info(f"运行期开始, 最大 {max_rounds} 轮")
         for _ in range(max_rounds):
-            val = self._fetch_data(datasource)
-            if val is None:
-                break
+            val = self._fetch(datasource)
+            if val is None: break
             self.round_num += 1
-            
-            # 每个学习器独立观察
+
             for learner in self.learners:
                 learner.observe(val)
-            
+
             # 定期讨论
             if self.round_num % self.propose_interval == 0:
-                round_result = self._discussion_round(val)
-                self.log.append(round_result)
-                
-                # 事后验证 (用预留数据)
-                if len(self.verify_buffer) >= 5:
-                    self._verify()
-                    self.verify_buffer = []
-            
-            # 预留部分数据用于验证
+                self._discussion_round(val)
+
+            # 事后验证
+            if len(self.verify_buffer) >= 5:
+                self._verify()
+                self.verify_buffer = []
+
             if random.random() < self.verify_ratio:
                 self.verify_buffer.append(val)
-        
+
         return self._final_summary()
 
     def _discussion_round(self, current_obs: float) -> dict:
         """
-        一轮完整讨论:
-        1. 各学习器基于当前观测提案
-        2. 评估论证质量，选出最佳
-        3. 允许学习器看到彼此推理后修正
-        4. 生成共识
+        v2.3 重构: 母模块主持讨论
+
+        旧: chains → evaluator.full_discussion() → 数字
+        新: chains → mother.deliberate() → 有推理的决策
         """
-        # 各学习器提案
+        # 各 Learner 提案
         chains = []
         for learner in self.learners:
             chain = learner.propose(current_obs)
             chains.append(chain)
-        
-        # 讨论 + 评估
-        consensus, ranked, method = self.evaluator.full_discussion(chains)
-        self.consensus_history.append(consensus)
-        
+
+        # ── v2.3: 母模块深思熟虑 ──
+        decision = self.mother.deliberate(
+            self.learners, chains, self.trust, current_obs
+        )
+        self.decisions.append(decision)
+        self.consensus_history.append(decision.consensus)
+
+        # ── Guard 检查 (只保护架构，不抑制思考) ──
+        guard_result = self.guard.check(
+            self.learners, self.trust,
+            decision.consensus,
+            abs(decision.consensus - current_obs),
+        )
+        # Guard 的干预只用于记录，不影响决策流程
+        if guard_result.get("violations"):
+            logger.warning(f"架构违规: {guard_result['violations']}")
+
         return {
             "round": self.round_num,
-            "consensus": consensus,
-            "method": method,
-            "top_argument": ranked[0].summary() if ranked else "N/A",
-            "n_chains": len(chains),
-            "trust_ranking": [f"{lid}:{t:.2f}" for lid, t in self.trust.rank()[:3]],
+            "consensus": decision.consensus,
+            "confidence": decision.confidence,
+            "reasoning": decision.reasoning,
+            "primary_influence": decision.primary_influence,
+            "dissenting_view": decision.dissenting_view,
+            "reservations": decision.reservations,
+            "feedback": {
+                lid: fb
+                for lid, fb in decision.learner_feedback.items()
+            },
+            "trust_ranking": [
+                f"{lid}:{t:.2f}"
+                for lid, t in (self.trust.rank() if hasattr(self.trust, 'rank') else [])[:3]
+            ],
+            "guard": guard_result.get("status", "stable"),
         }
 
     def _verify(self):
-        """
-        事后验证: 用预留的真实数据检验每个学习器最近提案的准确性。
-        
-        这是信任系统的核心——只在事后检验，不在事中加权。
-        """
+        """事后验证: 更新信念 + 信任"""
         if not self.verify_buffer:
             return
-        
         true_value = sum(self.verify_buffer) / len(self.verify_buffer)
-        
         for learner in self.learners:
             if learner.history:
-                last_proposal = learner.history[-1]
-                # 通知学习器真实值 → 更新信念
-                learner.learn(true_value, last_proposal)
-                # 更新信任
-                self.trust.verify(learner.learner_id, last_proposal, true_value)
+                learner.learn(true_value, learner.history[-1])
+                self.trust.verify(learner.learner_id, learner.history[-1], true_value)
+
+    def _fetch(self, datasource) -> Optional[float]:
+        val = datasource.fetch()
+        if val is not None:
+            self.data_buffer.append(val)
+        return val
 
     def _final_summary(self) -> dict:
-        """运行结束摘要"""
         learners_summary = []
         for l in self.learners:
             learners_summary.append({
@@ -196,18 +181,36 @@ class HiveMindV2:
                 "trust": self.trust.get(l.learner_id),
                 "total_rounds": l.total_rounds,
             })
-        
-        most_trusted = max(learners_summary, key=lambda x: x["trust"])
-        
+
         return {
-            "version": "2.0.0-alpha",
+            "version": "2.3.0-alpha",
             "total_rounds": self.round_num,
             "n_learners": len(self.learners),
             "warmup_rounds": self.warmup_rounds,
             "n_discussions": len(self.log),
-            "final_consensus": self.consensus_history[-1] if self.consensus_history else None,
-            "most_trusted": most_trusted["id"],
-            "most_trusted_track_record": most_trusted["track_record"],
+            "n_decisions": self.mother.decision_count,
+            "final_consensus": (
+                self.consensus_history[-1] if self.consensus_history else None
+            ),
+            "mother_summary": self.mother.summary(),
             "learners": learners_summary,
             "trust_summary": self.trust.summary(),
         }
+
+    # ── 梦境接口 (保持向后兼容) ──
+    def save_dream(self, filepath: str):
+        from .dream import DreamStore
+        store = DreamStore()
+        return store.save(self.learners, filepath)
+
+    @classmethod
+    def from_dream(cls, filepath: str, **kwargs) -> "HiveMindV2":
+        from .dream import DreamStore
+        store = DreamStore()
+        states = store.load(filepath)
+        instance = cls(use_personas=False, n_learners=0)
+        instance.learners = DreamStore.restore_learners(states)
+        for l in instance.learners:
+            instance.trust.register(l.learner_id)
+        instance.warmup_rounds = 0
+        return instance
