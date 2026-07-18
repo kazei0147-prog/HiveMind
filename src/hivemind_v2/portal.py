@@ -193,9 +193,21 @@ class CuriosityEngine:
         self._low_confidence_streak = 0
         self._last_search_query = ""
         self.search_count = 0
-        self._gap_cooldown = 0           # 结构断层冷却
-        self._experiment_interval = 30   # 定期实验好奇
+        self._gap_cooldown = 0
+        self._experiment_interval = 30
         self._experiment_rounds = 0
+
+        # v2.11: 主动好奇心信号
+        self._r2_tracker: list[float] = []       # R² 滑动窗口
+        self._r2_decline_streak = 0               # 连续下降轮数
+        self.uncertain_region_count = 0            # 区域不确定触发次数
+        self.knowledge_frontier_count = 0           # 知识前沿触发次数
+
+    def feed_r2(self, r2: float):
+        """外部调用: 每轮报告当前 R², 用于主动好奇心信号"""
+        self._r2_tracker.append(r2)
+        if len(self._r2_tracker) > 20:
+            self._r2_tracker.pop(0)
 
     def should_poll(
         self,
@@ -227,7 +239,33 @@ class CuriosityEngine:
                 self.last_poll_time = now
                 return "search", "结构断层 (触发探索实验)"
 
-        # 条件6: 定期实验好奇 (v2.10)
+        # 条件6: R² 持续下降 (v2.11 — 主动好奇)
+        if len(self._r2_tracker) >= 8:
+            recent = self._r2_tracker[-8:]
+            if len(recent) >= 5:
+                halves = recent[:4], recent[-4:]
+                if sum(halves[1]) / 4 < sum(halves[0]) / 4 * 0.95:
+                    self._r2_decline_streak += 1
+                else:
+                    self._r2_decline_streak = 0
+                if self._r2_decline_streak >= 3:
+                    self._r2_decline_streak = 0
+                    self.search_count += 1
+                    self.last_poll_time = now
+                    return "curiosity", "R² 持续下降 (提前探索, 防崩塌)"
+
+        # 条件7: 知识前沿 (v2.11 — 多假设模糊, 只在不确定时触发)
+        if function_learner is not None and hasattr(function_learner, 'learners'):
+            bases = function_learner.learners
+            if len(bases) >= 2:
+                r2_vals = sorted([l.r_squared for l in bases if l.n_updates > 20], reverse=True)
+                if len(r2_vals) >= 2 and r2_vals[0] < 0.90 and r2_vals[0] - r2_vals[1] < 0.04:
+                    self.knowledge_frontier_count += 1
+                    self.search_count += 1
+                    self.last_poll_time = now
+                    return "explore", "知识前沿 (多个假设同样合理, 需区分)"
+
+        # 条件8: 定期实验好奇 (v2.10)
         self._experiment_rounds += 1
         if self._experiment_rounds >= self._experiment_interval:
             self._experiment_rounds = 0
