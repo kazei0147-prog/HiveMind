@@ -15,10 +15,14 @@ from typing import List
 class PolyLearner:
     """在线多项式 RLS — 自动升阶"""
 
-    def __init__(self, max_degree: int = 5, forgetting: float = 0.995):
+    def __init__(self, max_degree: int = 5, forgetting: float = 0.995,
+                 l2_lambda: float = 0.001, upgrade_cooldown: int = 8):
         self.max_degree = max_degree
         self.current_degree = 1       # 从线性起步
         self.forgetting = forgetting
+        self.l2_lambda = l2_lambda    # L2 正则化系数
+        self.upgrade_cooldown = upgrade_cooldown  # 升阶冷却轮数
+        self._upgrades_since_last = 0  # 上次升阶后的更新轮数
 
         # ── state per degree ──
         self.theta: List[List[float]] = []   # theta[d] = coefficients of degree d
@@ -49,6 +53,12 @@ class PolyLearner:
             self.r_squared.append(0.0)
             self.residual_std.append(1.0)
             self.n_updates.append(0)
+
+        # 每阶的 R² 峰值追踪
+        while len(getattr(self, '_r2_peak', [])) <= d:
+            if not hasattr(self, '_r2_peak'):
+                self._r2_peak: List[float] = []
+            self._r2_peak.append(0.0)
 
     def _phi(self, x: float, degree: int) -> list:
         """构建 phi 向量: [x^d, x^(d-1), ..., x, 1]"""
@@ -86,7 +96,8 @@ class PolyLearner:
         K = [p / denom for p in P_phi]
 
         for i in range(d + 1):
-            theta[i] += K[i] * error
+            # RLS 增量 + L2 权重衰减 (防过拟合)
+            theta[i] = theta[i] * (1.0 - self.l2_lambda) + K[i] * error
 
         for i in range(d + 1):
             for j in range(d + 1):
@@ -104,6 +115,9 @@ class PolyLearner:
             ss_tot = sum((yi - y_mean) ** 2 for yi in ys) + 1e-8
             self.r_squared[d] = max(0.0, 1.0 - ss_res / ss_tot)
             self.residual_std[d] = math.sqrt(ss_res / recent_n) if recent_n > 0 else 1.0
+            # 追 R² 峰值
+            if self.r_squared[d] > getattr(self, '_r2_peak', [0]*10)[d]:
+                self._r2_peak[d] = self.r_squared[d]
 
         return error
 
@@ -130,24 +144,28 @@ class PolyLearner:
 
     # ── 结构发现 ──
 
-    def check_upgrade(self, min_samples: int = 20, r2_improvement: float = 0.05,
-                      r2_collapse: float = 0.75) -> bool:
+    def check_upgrade(self, min_samples: int = 30, r2_improvement: float = 0.06,
+                      r2_drop: float = 0.05) -> bool:
         """
         检查是否应升阶。触发条件:
-          1. 当前 R² 低于 r2_collapse (模型崩塌 → 结构已变)
-          2. 下一阶 R² 显著高于当前 (更高度数明显更好)
-
-        只对 RECENT 数据做升阶判断, 避免历史旧数据污染。
+          1. R² 从峰值跌超 r2_drop (相对) → 结构可能变了
+          2. 距上次升阶已过冷却期
+          3. 下一阶 R² 显著高于当前
         """
         d = self.current_degree
-        if d >= self.max_degree or self.n_updates[d] < min_samples:
+        self._upgrades_since_last += 1
+
+        if d >= self.max_degree:
+            return False
+        if self.n_updates[d] < min_samples:
+            return False
+        if self._upgrades_since_last < self.upgrade_cooldown:
             return False
 
+        peak = self._r2_peak[d]
         r2_curr = self.r_squared[d]
-        should_check = r2_curr < r2_collapse
-
-        if not should_check:
-            return False
+        if peak > 0.5 and r2_curr > peak * (1.0 - r2_drop):
+            return False  # R² 没明显跌
 
         next_d = d + 1
         self._init_degree(next_d)
@@ -169,6 +187,7 @@ class PolyLearner:
         if r2_next > r2_curr + r2_improvement:
             old_deg = self.current_degree
             self.current_degree = next_d
+            self._upgrades_since_last = 0  # 重置冷却
             self.degree_upgrades.append({
                 "from": old_deg, "to": next_d,
                 "r2_before": round(r2_curr, 4),
@@ -178,10 +197,21 @@ class PolyLearner:
             return True
         return False
 
-    def structure_gap(self, r2_threshold: float = 0.75) -> bool:
-        """CuriosityEngine 兼容接口: 当前模型 R² 是否崩塌"""
+    def structure_gap(self, r2_threshold: float = 0.70) -> bool:
+        """CuriosityEngine 兼容: 当前模型是否可修复的崩塌。
+        冷却期内不重复报警, 防止恐慌循环。
+        检测到崩塌时临时加速遗忘, 帮 RLS 丢弃旧 regime 数据。"""
+        if self._upgrades_since_last < self.upgrade_cooldown:
+            return False
         d = self.current_degree
-        return self.n_updates[d] >= 15 and self.r_squared[d] < r2_threshold
+        if d >= self.max_degree:
+            return False
+        gap = self.n_updates[d] >= 15 and self.r_squared[d] < r2_threshold
+        if gap:
+            self.forgetting = 0.95  # 临时加速遗忘 (vs 默认 0.995)
+        else:
+            self.forgetting = 0.995  # 恢复正常
+        return gap
 
     # ── 导出 ──
 
