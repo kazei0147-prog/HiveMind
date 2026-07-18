@@ -178,6 +178,13 @@ class PolyLearner:
             return True
         return False
 
+    def structure_gap(self, r2_threshold: float = 0.75) -> bool:
+        """CuriosityEngine 兼容接口: 当前模型 R² 是否崩塌"""
+        d = self.current_degree
+        return self.n_updates[d] >= 15 and self.r_squared[d] < r2_threshold
+
+    # ── 导出 ──
+
     def formula(self, degree: int = None) -> str:
         """人类可读公式"""
         d = degree if degree is not None else self.current_degree
