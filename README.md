@@ -149,7 +149,7 @@ python asteriamind.py --interactive
 
 **主动拒绝学习**: 外部信息是证据, 不是权威。冲突时生成竞争假说、降低外部信任、标记为待验证——绝不盲信互联网。
 
-## 四·五、v3.0-alpha: Knowledge Core — 脑内世界
+## 四·七、v3.0-alpha: Knowledge Core — 脑内世界
 
 > 🔬 **实验性。** 从"数值模式识别"升级为"结构化知识表征 + 预测-验证闭环"。
 
