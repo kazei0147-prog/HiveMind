@@ -226,6 +226,163 @@ class KnowledgeGraph:
                 return r
         return None
 
+    # ── 自主思考 (v3.0) ──
+
+    def generate_goals(self, max_goals: int = 3) -> list[dict]:
+        """
+        从知识图谱本身生成探索目标——不需要外部告诉她要查什么。
+
+        三种自带的目标类型:
+          gap — 实体连接太少, 需要更多关系
+          conflict — 同一 subject-predicate 有多个 object, 矛盾
+          uncertain — 置信度最低的关系, 需要验证
+        """
+        goals = []
+
+        # 1. 知识缺口
+        all_entities = set()
+        for r in self.relations:
+            all_entities.add(r.subject)
+            all_entities.add(r.object)
+        for e in all_entities:
+            n = sum(1 for r in self.relations if r.subject == e or r.object == e)
+            if n <= 1:
+                goals.append({
+                    "type": "gap",
+                    "target": e,
+                    "reason": f"对\"{e}\"了解太少 (仅 {n} 条关系)",
+                    "priority": 1.0 / max(n, 1),
+                })
+
+        # 2. 矛盾
+        for (s, p), rels in self._group_by_sp().items():
+            objs = set(r.object for r in rels)
+            if len(objs) > 1:
+                goals.append({
+                    "type": "conflict",
+                    "target": f"{s}--[{p}]",
+                    "reason": f"\"{s}\"的\"{p}\"有多个答案: {objs}",
+                    "priority": 0.9,
+                })
+
+        # 3. 最不确定
+        for r in self.most_uncertain(3):
+            if r.confidence < 0.6:
+                goals.append({
+                    "type": "uncertain",
+                    "target": r.key(),
+                    "reason": f"置信度仅 {r.confidence:.2f}, 需要验证",
+                    "priority": 1.0 - r.confidence,
+                })
+
+        goals.sort(key=lambda g: -g["priority"])
+        return goals[:max_goals]
+
+    def generate_hypothesis(self, target: str, target_type: str = "uncertain") -> list[dict]:
+        """
+        基于知识图谱中的模式, 生成关于 target 的假说。
+
+        不依赖 if-else 模板——而是从已有的关系模式中类比。
+        """
+        hypotheses = []
+
+        if target_type == "gap":
+            # "X 了解太少" → 看图谱中类似的实体跟什么有关系
+            for r in self.relations:
+                if r.subject != target and r.object != target:
+                    # 如果其他实体有 IS_A 关系, 那 target 可能也有
+                    if r.predicate in ("IS_A", "CAUSES", "HAS_PROPERTY"):
+                        hypotheses.append({
+                            "statement": f"{target} 可能也 {r.predicate} {r.object}",
+                            "based_on": f"类似实体 {r.subject} 有 {r.predicate} 关系",
+                            "confidence": r.confidence * 0.3,
+                        })
+
+        elif target_type == "conflict":
+            # "X--[P] 有两个答案" → 逐个检验哪个对
+            for r in self.relations:
+                if r.key().startswith(target):
+                    hypotheses.append({
+                        "statement": f"{r.subject} 的 {r.predicate} 是 {r.object}",
+                        "based_on": f"证据: 置信度 {r.confidence:.2f}, α={r.belief.alpha:.1f}",
+                        "confidence": r.confidence,
+                    })
+
+        elif target_type == "uncertain":
+            # "X--[P]-->Y 置信度低" → 要么对要么错
+            for r in self.relations:
+                if r.key() == target:
+                    hypotheses.append({
+                        "statement": f"{r.key()} 成立",
+                        "based_on": f"当前置信度 {r.confidence:.2f}, 证据 {r.belief.evidence_total:.0f} 条",
+                        "confidence": r.confidence,
+                    })
+                    hypotheses.append({
+                        "statement": f"{r.key()} 不成立, {r.subject} 与 {r.object} 只是巧合",
+                        "based_on": f"反证据 β={r.belief.beta:.1f}",
+                        "confidence": 1.0 - r.confidence,
+                    })
+
+        return sorted(hypotheses, key=lambda h: -h["confidence"])
+
+    def explain_change(self, key: str, before_conf: float, after_conf: float,
+                       before_alpha: float, after_alpha: float,
+                       before_beta: float, after_beta: float) -> str:
+        """
+        用图谱自身的关系结构解释为什么信念变了。
+        不是模板——是基于图谱中的 pattern 做归因。
+        """
+        parts = key.split("--[")
+        if len(parts) < 2:
+            return "无法解析关系"
+
+        delta = after_conf - before_conf
+        alpha_delta = after_alpha - before_alpha
+        beta_delta = after_beta - before_beta
+
+        # 从图谱中找到可能的归因
+        subject = parts[0].strip()
+        predicate = parts[1].split("]-->")[0].strip() if "]-->" in parts[1] else ""
+        obj = parts[1].split("]-->")[1].strip() if "]-->" in parts[1] else ""
+
+        reasons = []
+
+        if alpha_delta > 0.5:
+            # 看看是否有支持性关系帮助了增长
+            supporters = [r for r in self.relations
+                          if (r.subject == subject or r.object == subject)
+                          and r.confidence > 0.7 and r.key() != key]
+            if supporters:
+                reasons.append(f"已有 {len(supporters)} 条高置信度相关关系提供了间接支持")
+
+        if beta_delta > 0.5:
+            # 看看是否有矛盾关系导致下降
+            contradictors = [r for r in self.relations
+                             if r.subject == subject and r.predicate == predicate
+                             and r.object != obj]
+            if contradictors:
+                alt_objects = [r.object for r in contradictors]
+                reasons.append(f"存在矛盾: 同一关系指向了 {alt_objects}")
+
+        if not reasons:
+            if abs(delta) < 0.02:
+                return f"信念变化很小 ({delta:+.3f})，现有证据不足以改变判断。需要更多数据。"
+            if delta > 0:
+                return f"信念增强了 ({delta:+.3f})，新证据与现有知识一致。"
+            else:
+                return f"信念削弱了 ({delta:+.3f})，新证据挑战了现有认知。"
+
+        return "；".join(reasons)
+
+    # ── 内部辅助 ──
+
+    def _group_by_sp(self) -> dict:
+        groups = {}
+        for r in self.relations:
+            key = (r.subject, r.predicate)
+            groups.setdefault(key, []).append(r)
+        return groups
+
     # ── 查询 ──
 
     def query(self, subject: str, predicate: str = None) -> list[Relation]:
