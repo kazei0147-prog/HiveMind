@@ -33,6 +33,7 @@ from hivemind_v2.argument import ArgumentEvaluator
 from hivemind_v2.validator import CrossValidator
 from hivemind_v2.portal import CuriosityEngine
 from hivemind_v2.exploration_reward import DelayedVerificationQueue, ExplorationReward
+from hivemind_v2.datasource import LibrarySource, DataPipeline
 
 random.seed(42)
 
@@ -47,6 +48,20 @@ curiosity = CuriosityEngine(exploration_patience=12)
 curiosity._experiment_interval = 15
 reward_engine = ExplorationReward()
 reward_queue = DelayedVerificationQueue(delay_rounds=10)
+
+# 外部世界
+library = LibrarySource()
+pipeline = DataPipeline(kg, library)
+
+# 预填充知识库 (AM 可以自己查)
+library.add_fact("物体A", "HAS", "属性X", 0.9)
+library.add_fact("物体A", "HAS", "属性M", 0.5)  # AM 还不知道的新属性
+library.add_fact("物体B", "HAS", "属性X", 0.8)
+library.add_fact("物体B", "RESPONDS_TO", "事件1", 0.4)
+library.add_fact("物体C", "CAUSES", "事件3", 0.6)
+library.add_fact("物体C", "HAS", "属性N", 0.7)
+library.add_fact("事件1", "TRIGGERS", "事件4", 0.6)
+library.add_fact("事件4", "DEPENDS_ON", "物体A", 0.3)
 
 registry = ToolRegistry()
 for t in [
@@ -233,6 +248,38 @@ class AsteriaShell(cmd.Cmd):
             print(f"  ✅ 已喂入 ({x}, {y})，第 {ROUND} 轮")
         else:
             print("  格式: upload x=5.2 y=42.3")
+
+    def do_fetch(self, arg):
+        """AM 自己去外部世界查: fetch 物体A"""
+        subject = arg.strip()
+        if not subject:
+            # 自动找最不确定的实体
+            goals = kg.generate_goals(max_goals=1)
+            if goals:
+                subject = goals[0]["target"].split("--[")[0].strip()
+                print(f"  🔍 自动选择最需要了解的目标: {subject}")
+            else:
+                print("  ❌ 没有可查询的目标。先 learn 一些知识。")
+                return
+
+        print(f"  📡 查询外部世界: \"{subject}\"...")
+        summary = pipeline.explore_entity(subject)
+        print(f"  {summary}")
+
+        # 显示查到的新知识
+        if pipeline.fetch_log:
+            last = pipeline.fetch_log[-1]
+            print(f"  共获取 {pipeline.fetch_count} 条外部知识。")
+
+    def do_library(self, arg):
+        """查看外部知识库的内容"""
+        print(f"  外部知识库: {len(library._facts)} 个实体")
+        for entity, facts in sorted(library._facts.items()):
+            print(f"    {entity}:")
+            for pred, obj, conf in facts[:3]:
+                print(f"      {pred} → {obj} ({conf})")
+            if len(facts) > 3:
+                print(f"      ...等 {len(facts)} 条")
 
     def do_explore(self, arg):
         """自主闭环: 知识图谱自己产生目标→假说→实验→解释"""
