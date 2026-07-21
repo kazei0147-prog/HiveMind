@@ -19,8 +19,10 @@ sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from hivemind_v2.knowledge import KnowledgeGraph
 from hivemind_v2.world_model import WorldModel
 from hivemind_v2.meta_learner import MetaLearner, BasisSet
+from hivemind_v2.poly_learner import PolyLearner
 from hivemind_v2.diagnosis import DiagnosticEngine, ExperimentDesigner
 from hivemind_v2.tool_registry import ToolRegistry, Tool, orchestrate
+from hivemind_v2.exploration_reward import DelayedVerificationQueue, ExplorationReward
 from hivemind_v2.mother_adapter import MotherAdapter
 from hivemind_v2.learner import Learner
 from hivemind_v2.trust import TrustEngine
@@ -42,6 +44,9 @@ class AsteriaMind:
 
         # 结构层
         self.meta = MetaLearner(switch_r2_gap=0.03, check_interval=10)
+        self.poly = PolyLearner(max_degree=5, upgrade_cooldown=6)
+        self.reward_engine = ExplorationReward()
+        self.reward_queue = DelayedVerificationQueue(delay_rounds=10)
 
         # 诊断层
         self.diag = DiagnosticEngine(history_window=50)
@@ -61,6 +66,8 @@ class AsteriaMind:
             Tool("CrossValidator", "搭便车检查", "periodic"),
             Tool("KnowledgeGraph", "归档发现", "discovery"),
             Tool("WorldModel", "预测验证", "prediction"),
+            Tool("PolyLearner", "多项式自动升阶", "collapse"),
+            Tool("ExplorationReward", "探索奖励分配", "periodic"),
         ]:
             self.registry.register(t)
 
@@ -94,8 +101,10 @@ class AsteriaMind:
         for l in self.learners:
             l.observe(y)
 
-        # 结构学习
+        # 结构学习 (Meta + Poly)
         self.meta.update(x, y)
+        self.poly.update(x, y)
+        self.poly.check_upgrade(min_samples=15, r2_improvement=0.06)
 
         # 诊断
         if self.meta.current.n_updates > 5:
@@ -115,6 +124,10 @@ class AsteriaMind:
             for l in self.learners:
                 l.learn(y, proposals[l.learner_id])
                 self.trust.verify(l.learner_id, proposals[l.learner_id], y)
+                # 探索奖励: 记录预测 + 提交
+                self.reward_engine.record_prediction(l.learner_id, proposals[l.learner_id])
+                self.reward_queue.submit(l.learner_id, proposals[l.learner_id], y, self.round)
+            self.reward_queue.resolve(self.round, y)
 
             self.discussions += 1
 
