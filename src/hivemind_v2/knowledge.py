@@ -280,50 +280,92 @@ class KnowledgeGraph:
 
     def generate_hypothesis(self, target: str, target_type: str = "uncertain") -> list[dict]:
         """
-        基于知识图谱中的模式, 生成关于 target 的假说。
+        基于图拓扑相似性生成假说——不预设任何 predicate 白名单。
 
-        不依赖 if-else 模板——而是从已有的关系模式中类比。
+        原理:
+          1. 找图谱中与 target 结构相似的实体
+          2. 相似实体有的关系, target 没有 → 假说: target 可能也有
+          3. 假说由相似度 + 源关系置信度 + 不确定性共同加权
+
+        这是"图谱嵌入 + 信念传播"的最简实现。
         """
         hypotheses = []
+        target_entity = target.split("--[")[0].strip() if "--[" in target else target
 
+        # 如果目标是实体名, 直接找类比
         if target_type == "gap":
-            # "X 了解太少" → 看图谱中类似的实体跟什么有关系
-            for r in self.relations:
-                if r.subject != target and r.object != target:
-                    # 如果其他实体有 IS_A 关系, 那 target 可能也有
-                    if r.predicate in ("IS_A", "CAUSES", "HAS_PROPERTY"):
-                        hypotheses.append({
-                            "statement": f"{target} 可能也 {r.predicate} {r.object}",
-                            "based_on": f"类似实体 {r.subject} 有 {r.predicate} 关系",
-                            "confidence": r.confidence * 0.3,
-                        })
+            search_entity = target_entity
+        else:
+            search_entity = target_entity
 
-        elif target_type == "conflict":
-            # "X--[P] 有两个答案" → 逐个检验哪个对
-            for r in self.relations:
-                if r.key().startswith(target):
-                    hypotheses.append({
-                        "statement": f"{r.subject} 的 {r.predicate} 是 {r.object}",
-                        "based_on": f"证据: 置信度 {r.confidence:.2f}, α={r.belief.alpha:.1f}",
-                        "confidence": r.confidence,
+        # ── 图拓扑相似性: 两个实体共享的 predicate 越多, 越相似 ──
+        entity_signatures = self._build_signatures()
+
+        target_sig = entity_signatures.get(search_entity, {})
+        if not target_sig:
+            return self._fallback_hypotheses(target, target_type)
+
+        # 已有的关系 (避免重复假说)
+        existing_predicates = set(target_sig.keys())
+
+        similarities = []
+        for other_entity, other_sig in entity_signatures.items():
+            if other_entity == search_entity:
+                continue
+            # Jaccard: 共享 predicate / 总 predicate
+            shared = set(target_sig.keys()) & set(other_sig.keys())
+            total = set(target_sig.keys()) | set(other_sig.keys())
+            if not total:
+                continue
+            sim = len(shared) / len(total)
+            if sim > 0:
+                # 对方有但 target 没有的 predicate
+                novel = set(other_sig.keys()) - existing_predicates
+                for pred in novel:
+                    rel = other_sig[pred]
+                    similarities.append({
+                        "source_entity": other_entity,
+                        "predicate": pred,
+                        "object": rel.object,
+                        "similarity": sim,
+                        "source_confidence": rel.confidence,
                     })
 
-        elif target_type == "uncertain":
-            # "X--[P]-->Y 置信度低" → 要么对要么错
-            for r in self.relations:
-                if r.key() == target:
-                    hypotheses.append({
-                        "statement": f"{r.key()} 成立",
-                        "based_on": f"当前置信度 {r.confidence:.2f}, 证据 {r.belief.evidence_total:.0f} 条",
-                        "confidence": r.confidence,
-                    })
-                    hypotheses.append({
-                        "statement": f"{r.key()} 不成立, {r.subject} 与 {r.object} 只是巧合",
-                        "based_on": f"反证据 β={r.belief.beta:.1f}",
-                        "confidence": 1.0 - r.confidence,
-                    })
+        similarities.sort(key=lambda s: -s["similarity"] * s["source_confidence"])
 
-        return sorted(hypotheses, key=lambda h: -h["confidence"])
+        for s in similarities[:5]:
+            statement = f"{search_entity} 可能也 {s['predicate']} {s['object']}"
+            based_on = (f"与\"{s['source_entity']}\"结构相似度 {s['similarity']:.2f}, "
+                       f"它有 {s['predicate']} 关系 (置信度 {s['source_confidence']:.2f})")
+            conf = s["similarity"] * s["source_confidence"] * 0.5
+            hypotheses.append({
+                "statement": statement,
+                "based_on": based_on,
+                "confidence": round(conf, 3),
+                "source": "graph_topology",
+            })
+
+        if not hypotheses:
+            return self._fallback_hypotheses(target, target_type)
+        return hypotheses
+
+    def _build_signatures(self) -> dict:
+        """建立实体签名: {entity_name: {predicate: Relation}}"""
+        sigs = {}
+        for r in self.relations:
+            sigs.setdefault(r.subject, {})[r.predicate] = r
+            # 反向: object 也作为实体签名的一部分
+            sigs.setdefault(r.object, {})[f"is_{r.predicate}_of"] = r
+        return sigs
+
+    def _fallback_hypotheses(self, target: str, target_type: str) -> list[dict]:
+        """当图拓扑无法产生假说时的兜底 (仅用于空图)"""
+        return [{
+            "statement": f"需要更多关于\"{target}\"的数据",
+            "based_on": "图谱信息不足以产生有意义的假说",
+            "confidence": 0.1,
+            "source": "fallback",
+        }]
 
     def explain_change(self, key: str, before_conf: float, after_conf: float,
                        before_alpha: float, after_alpha: float,
