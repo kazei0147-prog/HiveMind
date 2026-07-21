@@ -115,20 +115,57 @@ class DataPipeline:
 
         learned = []
         for r in results:
-            # 避免重复学习已有的高置信度知识
             existing = self.kg.query(r.subject, r.predicate)
-            if existing and existing[0].confidence > r.confidence:
-                continue
+
+            if existing:
+                best = existing[0]
+
+                # ── 冲突检测 ──
+                if best.object != r.object and best.confidence > 0.4:
+                    self._handle_conflict(r, best)
+                    learned.append(r)
+                    continue
+
+                # 同方向但外部置信度低 → 拒绝
+                if best.object == r.object and r.confidence <= best.confidence * 0.8:
+                    self.fetch_count += 1
+                    self.fetch_log.append({
+                        "subject": subject, "action": "rejected",
+                        "reason": f"外部({r.confidence}) ≪ 内部({best.confidence:.2f})",
+                    })
+                    continue
 
             self.kg.add(r.subject, r.predicate, r.object,
                         confidence=r.confidence, source="external")
             learned.append(r)
             self.fetch_count += 1
 
+    def _handle_conflict(self, external: DataPoint, internal):
+        """
+        冲突处理: 不覆盖, 不平均 — 放入 KG 作为竞争假说等验证。
+
+        H_ext: 外部信息正确
+        H_int: 已有模型正确
+        H_hidden: 存在隐藏条件 (两者在不同语境下都对)
+        """
+        conf = {
+            "H_ext": external.confidence,
+            "H_int": internal.confidence,
+            "H_hidden": max(0.1, 1.0 - abs(external.confidence - internal.confidence)),
+        }
+        conflict_key = f"冲突:{external.subject}:{external.predicate}"
+        self.kg.add(external.subject, external.predicate, external.object,
+                    confidence=external.confidence * 0.3, source="unverified_external")
+        self.kg.add(conflict_key, "HAS_ALTERNATIVE", external.object,
+                    confidence=conf["H_ext"], source="conflict")
+        self.kg.add(conflict_key, "HAS_ALTERNATIVE", internal.object,
+                    confidence=conf["H_int"], source="conflict")
         self.fetch_log.append({
-            "subject": subject, "found": len(results), "learned": len(learned),
+            "subject": external.subject, "action": "conflict",
+            "external": f"{external.subject} {external.predicate} {external.object}",
+            "internal": f"{internal.subject} {internal.predicate} {internal.object} ({internal.confidence:.2f})",
+            "h_ext": conf["H_ext"], "h_int": conf["H_int"], "h_hidden": conf["H_hidden"],
         })
-        return learned
 
     def explore_entity(self, subject: str) -> str:
         """
