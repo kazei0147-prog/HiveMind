@@ -278,7 +278,144 @@ class KnowledgeGraph:
         goals.sort(key=lambda g: -g["priority"])
         return goals[:max_goals]
 
-    def generate_hypothesis(self, target: str, target_type: str = "uncertain") -> list[dict]:
+    def generate_competing_hypotheses(self, target: str, target_type: str = "gap") -> list[dict]:
+        """
+        多假说竞争: 对同一个结构现象, 生成多个互斥的解释。
+
+        H1: 结构相似 → 缺失的边应该存在 (类比推理)
+        H2: 共同原因 → target 和相似实体被同一个上级节点驱动
+        H3: 表面相似 → 只是巧合, 没有深层联系
+        H4: 间接路径 → 存在未观察到的中间节点
+
+        每个假说附带: 可观察预测、验证方式、置信度
+        """
+        hypos = []
+
+        if target_type == "gap":
+            target_entity = target
+        elif "--[" in target:
+            target_entity = target.split("--[")[0].strip()
+        else:
+            target_entity = target
+
+        sigs = self._build_signatures()
+        target_sig = sigs.get(target_entity, set())
+        existing_preds = set(p for p, _ in target_sig)
+
+        # ── H1: 类比推理 (结构相似 → 缺失边应存在) ──
+        analogies = self._find_analogies(target_entity, sigs, existing_preds)
+        if analogies:
+            best = analogies[0]
+            hypos.append({
+                "id": "H1",
+                "label": f"类比: {target_entity} 可能也 {best['predicate']} {best['counterpart']}",
+                "mechanism": "结构相似性",
+                "detail": f"与\"{best['source_entity']}\"相似度 {best['similarity']:.2f}",
+                "confidence": round(best["similarity"] * 0.4, 3),
+                "prediction": f"如果 H1 正确, 应观察到: {target_entity} {best['predicate']} {best['counterpart']} 这种情况频繁出现",
+                "test": "多次观察",  # default test method
+                "discrimination": f"区别于 H2: H1 预测 {target_entity} 主动影响 {best['counterpart']}, H2 预测它们都是被动结果",
+            })
+
+        # ── H2: 共同原因 (共享邻居 → 被同一个上级驱动) ──
+        common_causes = self._find_common_causes(target_entity, sigs)
+        if common_causes:
+            cc = common_causes[0]
+            hypos.append({
+                "id": "H2",
+                "label": f"共同原因: {cc['cause']} 同时导致了 {target_entity} 和 {cc['associated']}",
+                "mechanism": "共因混淆",
+                "detail": f"两者都连接到 {cc['cause']} (共 {cc['shared_count']} 个共享节点)",
+                "confidence": round(len(cc["shared"]) / max(1, len(target_sig)) * 0.35, 3),
+                "prediction": f"如果 H2 正确, 应观察到: 移除 {cc['cause']} 后, {target_entity} 和 {cc['associated']} 不再相关",
+                "test": "条件独立",
+                "discrimination": f"区别于 H1: H2 认为相关性来自共同父节点, 而非 {target_entity} 自身的属性",
+            })
+
+        # ── H3: 表面相似 (低置信度 → 巧合) ──
+        hypos.append({
+            "id": "H3",
+            "label": f"巧合: {target_entity} 的相似性只是噪音",
+            "mechanism": "统计偶然",
+            "detail": f"当前证据不足以建立任何因果或类比关系",
+            "confidence": 0.1,
+            "prediction": f"如果 H3 正确, 应观察到: {target_entity} 与其他实体的关系没有规律, 增加数据后相似度下降而非上升",
+            "test": "增加样本量",
+            "discrimination": "区别于 H1/H2: H3 预测持续增加数据不会让关系变强",
+        })
+
+        # ── H4: 间接路径 (缺失的中间节点) ──
+        indirect = self._find_indirect_paths(target_entity, sigs)
+        if indirect:
+            ip = indirect[0]
+            hypos.append({
+                "id": "H4",
+                "label": f"间接路径: {target_entity} 通过 {ip['mid']} 间接连接到 {ip['target']}",
+                "mechanism": "中介效应",
+                "detail": f"存在路径 {target_entity} → ? → {ip['target']}",
+                "confidence": round(ip["strength"] * 0.3, 3),
+                "prediction": f"如果 H4 正确, 应观察到: {target_entity} 影响 {ip['mid']}, {ip['mid']} 再影响 {ip['target']}, 而非直接连接",
+                "test": "中介分析",
+                "discrimination": f"区别于 H1: H4 预测关系是间接的, 控制 {ip['mid']} 后直接效应消失",
+            })
+
+        return sorted(hypos, key=lambda h: -h["confidence"])
+
+    def _find_analogies(self, entity, sigs, existing_preds, n=3) -> list[dict]:
+        results = []
+        target_sig = sigs.get(entity, set())
+        for other, other_sig in sigs.items():
+            if other == entity:
+                continue
+            shared = target_sig & other_sig
+            total = target_sig | other_sig
+            if not total:
+                continue
+            sim = len(shared) / len(total)
+            novel = set(p for p, _ in other_sig) - existing_preds
+            for pred in novel:
+                cps = [cp for p, cp in other_sig if p == pred]
+                for cp in cps:
+                    results.append({
+                        "source_entity": other, "predicate": pred,
+                        "counterpart": cp, "similarity": sim,
+                    })
+        return sorted(results, key=lambda r: -r["similarity"])[:n]
+
+    def _find_common_causes(self, entity, sigs) -> list[dict]:
+        """找共享的邻居节点 (共同原因)"""
+        incoming_target = set(cp for p, cp in sigs.get(entity, set()) if p.startswith("←"))
+        results = []
+        for other, other_sig in sigs.items():
+            if other == entity:
+                continue
+            incoming_other = set(cp for p, cp in other_sig if p.startswith("←"))
+            shared = incoming_target & incoming_other
+            if len(shared) >= 1:
+                results.append({
+                    "cause": list(shared)[0],
+                    "associated": other,
+                    "shared": list(shared),
+                    "shared_count": len(shared),
+                })
+        return sorted(results, key=lambda r: -r["shared_count"])
+
+    def _find_indirect_paths(self, entity, sigs, max_hops=2) -> list[dict]:
+        """找两跳以内的间接路径"""
+        results = []
+        outgoing = [(p, cp) for p, cp in sigs.get(entity, set()) if not p.startswith("←")]
+        for pred, mid in outgoing:
+            mid_outgoing = [(p, cp) for p, cp in sigs.get(mid, set()) if not p.startswith("←")]
+            for mp, target in mid_outgoing:
+                if target != entity:
+                    # bidirectional tie strength
+                    strength = 1.0 / max(max_hops, 1)
+                    results.append({
+                        "mid": mid, "target": target,
+                        "path": f"{entity}→{mid}→{target}",
+                        "strength": strength,
+                    })
+        return sorted(results, key=lambda r: -r["strength"])
         """
         基于图拓扑相似性生成假说——不预设任何 predicate 白名单。
 

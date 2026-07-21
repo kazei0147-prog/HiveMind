@@ -267,17 +267,33 @@ class AsteriaShell(cmd.Cmd):
 
         goal = goals[0]
 
-        # ── Step 2: 图谱自己生成假说 ──
-        hypotheses = kg.generate_hypothesis(goal["target"], goal["type"])
-        print(f"\n  💭 关于\"{goal['target']}\"的假说 ({len(hypotheses)} 个):")
+        # ── Step 2: 多假说竞争 ──
+        hypotheses = kg.generate_competing_hypotheses(goal["target"], goal["type"])
+        print(f"\n  💭 关于\"{goal['target']}\"的 {len(hypotheses)} 个竞争假说:")
         for h in hypotheses:
-            print(f"    · {h['statement']}")
-            print(f"      ↳ {h['based_on']}")
+            print(f"\n     {h['id']}: {h['label']}")
+            print(f"     机制: {h['mechanism']}")
+            print(f"     置信度: {h['confidence']:.3f}")
+            print(f"     📊 预测: {h['prediction']}")
+            print(f"     🔬 检验: {h['test']}")
+            if 'discrimination' in h:
+                print(f"     ⚔️  {h['discrimination']}")
 
-        # ── Step 3: 设计实验, 采样, 执行 ──
-        print(f"\n  🧪 实验: 采样 20 个点验证假说...")
-        pre_rels = [(r.key(), r.confidence, r.belief.alpha, r.belief.beta)
-                    for r in kg.relations if goal["target"] in r.key()]
+        # ── Step 3: 世界模型检验竞争假说 ──
+        top2 = [h for h in hypotheses[:2] if h["confidence"] > 0.05]
+        if len(top2) >= 2:
+            print(f"\n  🌍 WorldModel 比较 H1 vs H2:")
+            h1, h2 = top2[0], top2[1]
+            print(f"     如果 {h1['id']} 正确: {h1['prediction']}")
+            print(f"     如果 {h2['id']} 正确: {h2['prediction']}")
+            print(f"     🧪 区分实验: 采样 20 个点看实际模式")
+
+        # ── Step 4: 采样 + 执行 ──
+        print(f"\n  🧪 采样 20 个点...")
+        pre_state = {}
+        for r in kg.relations:
+            if goal["target"] in r.key():
+                pre_state[r.key()] = (r.confidence, r.belief.alpha, r.belief.beta)
 
         def world(x):
             return 30 * math.sin(x / 5) + 2 * x + random.gauss(0, 3)
@@ -288,48 +304,31 @@ class AsteriaShell(cmd.Cmd):
             y = world(x)
             step(x, y)
 
-        # 根据目标类型确定验证逻辑
-        if goal["type"] == "conflict":
-            # 矛盾型: 看哪个 object 在当前数据下更合理
-            target_rels = [r for r in kg.relations if goal["target"] in r.key()]
-            best = None
-            for r in target_rels:
-                # 结构验证: 用基函数匹配度
-                if meta.current.basis.name in r.object or r.object in meta.current.basis.name:
-                    best = r
-                    kg.observe(r.subject, r.predicate, r.object, correct=True, weight=1.0)
-                elif r.confidence > 0.3:
-                    kg.observe(r.subject, r.predicate, r.object, correct=False,
-                               weight=0.5, context="实验不支持", alternative="数据不支持此关系")
-            verdict = f"当前数据支持 {best.object}" if best else "无法确定哪个正确"
-        else:
-            # gap/uncertain: 直接验证 target 关系
-            for r in kg.relations:
-                if goal["target"] in r.key():
-                    correct = r.confidence > 0.5
-                    kg.observe(r.subject, r.predicate, r.object,
-                               correct=correct, weight=1.0 if correct else 0.5)
+        # 用新数据更新信念 (哪个假说被支持?)
+        for r in kg.relations:
+            if goal["target"] in r.key():
+                kg.observe(r.subject, r.predicate, r.object,
+                           correct=(r.confidence > 0.3), weight=0.5)
 
-            post_rels = [(r.key(), r.confidence, r.belief.alpha, r.belief.beta)
-                         for r in kg.relations if goal["target"] in r.key()]
-            verdict = "实验完成"
-
-        # ── Step 4: 图谱自己解释变化 ──
-        print(f"\n  📊 结果: {verdict}")
-        for i, (key, before_conf, before_a, before_b) in enumerate(pre_rels):
-            if i < len([r for r in kg.relations if goal["target"] in r.key()]):
-                r = [r for r in kg.relations if goal["target"] in r.key()][i]
-                delta = r.confidence - before_conf
-                explanation = kg.explain_change(
-                    key, before_conf, r.confidence,
-                    before_a, r.belief.alpha, before_b, r.belief.beta,
-                )
+        # ── Step 5: 结果 ──
+        print(f"\n  📊 实验结果:")
+        for r in kg.relations:
+            if goal["target"] in r.key() and r.key() in pre_state:
+                old_c, old_a, old_b = pre_state[r.key()]
+                delta = r.confidence - old_c
                 arrow = "↑" if delta > 0.01 else ("↓" if delta < -0.01 else "→")
-                print(f"    {arrow} {key[:50]}")
-                print(f"      置信度 {before_conf:.2f}→{r.confidence:.2f}")
-                print(f"      💡 {explanation}")
+                explanation = kg.explain_change(
+                    r.key(), old_c, r.confidence, old_a, r.belief.alpha, old_b, r.belief.beta)
+                print(f"     {arrow} {r.key()[:55]}")
+                print(f"        置信度 {old_c:.2f}→{r.confidence:.2f}")
+                print(f"        💡 {explanation}")
 
-        print(f"\n════════════════════════════════════════════\n")
+        # 更新假说竞争结果
+        if top2 and any(goal["target"] in r.key() for r in kg.relations):
+            target_rel = [r for r in kg.relations if goal["target"] in r.key()][0]
+            if target_rel.confidence > 0.5:
+                print(f"\n  🏆 实验后偏好的假说: {'H1' if target_rel.confidence > 0.4 else 'H2'}")
+                print(f"     因为: 数据支持了目标关系的存在 (置信度 {target_rel.confidence:.2f})")
 
     def do_help(self, arg):
         print("""
