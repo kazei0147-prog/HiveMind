@@ -51,6 +51,7 @@ from AsteriaMind.knowledge_request import (
 )
 from AsteriaMind.math_reasoner import MathReasoner
 from AsteriaMind.skill_library import SkillLibrary, build_default_skills
+from AsteriaMind.command_tool import CommandTool
 
 random.seed(42)
 
@@ -90,6 +91,7 @@ vl = VectorLayer(dim=128)
 kae = KnowledgeAcquisitionExecutor(knowledge_queue, web_search, kg, vl)
 math_engine = MathReasoner()
 skill_lib = build_default_skills()
+ctool = CommandTool()
 
 # 注册数学推理为假说模板
 tmpl_registry.register(HypothesisTemplate(
@@ -580,6 +582,28 @@ class AsteriaShell(cmd.Cmd):
         else:
             missing = skill_lib.get_missing_triggers(query)
             print(f"  ❓ {missing}")
+
+    def do_cmd(self, arg):
+        """执行终端命令: cmd <命令> (白名单安全)"""
+        command = arg.strip()
+        if not command:
+            print("  用法: cmd <命令>")
+            return
+        result = ctool.run(command)
+        icon = "✅" if result.success else "❌"
+        print(f"  {icon} [{result.elapsed_ms:.0f}ms] {command}")
+        if result.stdout:
+            for line in result.stdout.strip().split('\n')[:10]:
+                print(f"     {line}")
+        if result.stderr:
+            print(f"     ⚠ {result.stderr[:100]}")
+
+    def do_env(self, arg):
+        """检查环境: env"""
+        env = ctool.check_env()
+        for k, v in env.items():
+            icon = "✅" if v["ok"] else "❌"
+            print(f"  {icon} {k}: {v['output']}")
 
     def do_skills(self, arg):
         """列出所有 Skill: skills"""

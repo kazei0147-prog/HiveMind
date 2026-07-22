@@ -31,6 +31,8 @@ from AsteriaMind.falsification import (
 from AsteriaMind.vector_layer import VectorLayer
 from AsteriaMind.cross_layer import CrossLayerBridge
 from AsteriaMind.human_review import HumanReviewInterface, ProvenanceGuard
+from AsteriaMind.world_model import WorldModel
+from AsteriaMind.command_tool import CommandTool
 from AsteriaMind.knowledge_request import (
     KnowledgeRequestMonitor, KnowledgeAcquisitionExecutor,
 )
@@ -195,7 +197,9 @@ class AsteriaDaemon:
         self.auditor = CertaintyAudit()
         self.falsifier = FalsificationController()
         self.bridge = CrossLayerBridge(self.kg, self.vl)
-        self.evolution = CognitiveEvolutionLayer(self.tmpl_registry, self.kg)
+        self.wm = WorldModel()
+        self.evolution = CognitiveEvolutionLayer(self.tmpl_registry, self.kg, self.wm)
+        self.cmd = CommandTool()
 
         self.knowledge_queue = []
         self.web_search = WebSearchInterface()
