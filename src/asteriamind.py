@@ -50,6 +50,7 @@ from AsteriaMind.knowledge_request import (
     KnowledgeRequestMonitor, KnowledgeAcquisitionExecutor, KnowledgeRequest,
 )
 from AsteriaMind.math_reasoner import MathReasoner
+from AsteriaMind.skill_library import SkillLibrary, build_default_skills
 
 random.seed(42)
 
@@ -88,6 +89,7 @@ kae = None  # 在 vl 之后初始化
 vl = VectorLayer(dim=128)
 kae = KnowledgeAcquisitionExecutor(knowledge_queue, web_search, kg, vl)
 math_engine = MathReasoner()
+skill_lib = build_default_skills()
 
 # 注册数学推理为假说模板
 tmpl_registry.register(HypothesisTemplate(
@@ -555,6 +557,37 @@ class AsteriaShell(cmd.Cmd):
             print(f"    📄 {r.title}")
             print(f"       {r.snippet[:100]}")
             print(f"       来源可信度: {r.source_credibility:.2f}")
+
+    def do_skill(self, arg):
+        """智能匹配 Skill: skill <查询>"""
+        query = arg.strip()
+        if not query:
+            print("  用法: skill <查询>")
+            return
+        best = skill_lib.best_match(query)
+        if best:
+            print(f"  🎯 匹配 Skill: {best.id} ({best.name})")
+            result = best.execute(query, kg)
+            if result.get("success"):
+                val = result.get("result")
+                if val is not None:
+                    print(f"     结果: {val}")
+                if result.get("steps"):
+                    for s in result["steps"]:
+                        print(f"     {s}")
+            else:
+                print(f"     ❌ {result.get('error', '执行失败')}")
+        else:
+            missing = skill_lib.get_missing_triggers(query)
+            print(f"  ❓ {missing}")
+
+    def do_skills(self, arg):
+        """列出所有 Skill: skills"""
+        by_cat = skill_lib.list_by_category()
+        for cat, skills in by_cat.items():
+            print(f"  📦 {cat}:")
+            for s in skills:
+                print(f"     · {s}")
 
     def do_audit(self, arg):
         """压力测试高置信度信念: audit"""
