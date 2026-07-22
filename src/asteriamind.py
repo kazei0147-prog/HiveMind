@@ -40,6 +40,9 @@ from AsteriaMind.hypothesis_template import (
 )
 from AsteriaMind.cognitive_evolution import CognitiveEvolutionLayer
 from AsteriaMind.certainty_audit import CertaintyAudit
+from AsteriaMind.falsification import (
+    FalsificationController, SourceAuthorityTracker, WebSearchInterface,
+)
 
 random.seed(42)
 
@@ -69,6 +72,9 @@ engine = HypothesisEngine(registry)
 evolution = CognitiveEvolutionLayer(registry, kg, wm)
 governance = TheoryGovernance(registry)
 auditor = CertaintyAudit()
+falsifier = FalsificationController()
+source_tracker = SourceAuthorityTracker()
+web_search = WebSearchInterface()
 governance = TheoryGovernance(registry)
 
 # 预填充知识库 (AM 可以自己查)
@@ -298,6 +304,19 @@ class AsteriaShell(cmd.Cmd):
                 print(f"      {pred} → {obj} ({conf})")
             if len(facts) > 3:
                 print(f"      ...等 {len(facts)} 条")
+    def do_search(self, arg):
+        """网络搜索: search <查询词>"""
+        query = arg.strip()
+        if not query:
+            print("  用法: search <查询词>")
+            return
+        print(f"  🔍 搜索: \"{query}\"...")
+        results = web_search.search(query)
+        for r in results[:5]:
+            print(f"    📄 {r.title}")
+            print(f"       {r.snippet[:100]}")
+            print(f"       来源可信度: {r.source_credibility:.2f}")
+
     def do_audit(self, arg):
         """压力测试高置信度信念: audit"""
         print(f"\n  🔍 信念压力测试 — 寻找结构性盲区")
@@ -361,17 +380,13 @@ class AsteriaShell(cmd.Cmd):
                 target_rel = at.object  # "咖啡--[CAUSES]-->清醒"
                 print(f"     🔬 反证实验: 给 \"{target_rel}\" 制造反设场景")
 
-                # 反证模式: 专门找它不成立的情况
-                subject = target_rel.split("--[")[0].strip()
-                # 对目标信念连续喂反证
-                for _ in range(10):
-                    kg.observe(subject, "CAUSES", target_rel.split("]-->")[1].strip(),
-                               correct=False, weight=0.8,
-                               context="反证标记触发的系统挑战",
-                               alternative="审计发现该信念无反证, 主动寻找反设场景")
-                # 标记已处理
-                kg.observe(at.subject, at.predicate, at.object,
-                           correct=True, weight=1.0)
+                # 反证模式: 有控制的挑战, 知道什么时候停
+                result = falsifier.run(kg, target_rel)
+                icon = "🛡️" if result.survived else "💥"
+                print(f"     {icon} {result.stop_reason}")
+                print(f"        置信度: {result.pre_confidence:.2f} → {result.post_confidence:.2f} "
+                      f"(α={result.pre_alpha:.0f}→{result.post_alpha:.0f} "
+                      f"β={result.pre_beta:.0f}→{result.post_beta:.0f})")
 
             print(f"\n  📊 反证实验结果:")
             for r in kg.relations:
