@@ -19,6 +19,7 @@ from AsteriaMind.hypothesis_template import TemplateRegistry, _builtin_templates
 from AsteriaMind.math_reasoner import MathReasoner
 from AsteriaMind.skill_library import build_default_skills
 from AsteriaMind.knowledge_db import KnowledgeDB
+from AsteriaMind.falsification import WebSearchInterface
 
 # ── AM 初始化 ──
 kg = KnowledgeGraph()
@@ -27,6 +28,7 @@ reg = TemplateRegistry()
 for t in _builtin_templates(): reg.register(t)
 skill_lib = build_default_skills()
 mr = MathReasoner()
+web_search = WebSearchInterface()
 
 # 从 DB 恢复已有知识
 for r in db.query():
@@ -198,46 +200,93 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
             self._json({"reply": f"错误: {e}", "error": True})
 
     def _process(self, text: str) -> tuple[str, str]:
-        """处理一条自然语言消息, 返回 (回复, 动作类型)"""
+        """处理自然语言——更智能的意图分类"""
 
-        # ── 数学 ──
-        if re.search(r'\d[\+\-\*/\^]', text) or re.search(r'算|等于|多少|几', text):
+        # ── 1. 数学优先: 含数字+运算符或明确求值词 ──
+        if re.search(r'\d\s*[\+\-\*/\^]\s*\d', text) or any(kw in text for kw in ['等于多少', '算一下', '是多少等于']):
             m = skill_lib.best_match(text)
             if m:
                 r = m.execute(text, kg)
                 if r.get("success"):
-                    return (f"计算结果: {r.get('result')}", "math")
+                    return (f"🧮 计算结果: {r.get('result')}", "math")
+            return ("❓ 这数学题我看不懂", "math_fail")
 
-        # ── 问题 ──
-        if "?" in text or "?" in text or "吗" in text or "什么" in text or "谁" in text:
-            # 提取关键词
-            for kw in re.findall(r'[\u4e00-\u9fff\w]{2,}', text.replace("?", "").replace("？", "")):
-                if kw in ("什么", "是什么", "吗", "可以", "怎么"): continue
-                found = kg.query(subject=kw)
-                if found:
-                    lines = [f"{r.subject} --[{r.predicate}]--> {r.object} ({r.confidence:.0%})"
-                             for r in found[:5]]
-                    return ("关于 '" + kw + "' 我知道:\n" + "\n".join(lines), "kg_query")
-            return (f"关于这个我还不知道。告诉我吧——比如 '{text[:4]} 是 什么'", "unknown")
+        # ── 2. 命令/请求/对话——不该学 ──
+        if any(text.startswith(p) for p in ['请', '帮我', '可以', '能帮', '请帮', '我想', '我要', '给我', '试试']):
+            if '搜索' in text or '查' in text or '找' in text:
+                query = text.replace('请', '').replace('帮我', '').replace('可以', '').replace('试试', '')
+                query = re.sub(r'(搜索|查一下|查|找一下|找|关于)', '', query).strip()
+                results = web_search.search(query)
+                if results:
+                    return (f"🔍 搜索 '{query}':\n" + "\n".join(
+                        f"  · {r.title}: {r.snippet[:80]}" for r in results[:3]), "search")
+                return (f"🔍 我没有真实搜索能力 (需要联网)。试试告诉我: '{query} 是 什么'?", "search_fail")
+            if '退出' in text or '再见' in text:
+                return ("好的, 随时回来 👋", "bye")
+            return ("好的, 我在听。有什么想告诉我的吗?", "ack")
 
-        # ── 事实陈述 ──
-        m = re.search(r'(.+?)是(.+)', text)
+        # ── 3. 元语句/对话——不该学 ──
+        if any(text.startswith(p) for p in ['你', '我', '我们', '咱', '为什么', '怎么', '请问', '谢谢', '感谢']):
+            if '你' in text and ('吗' in text or '?' in text or '？' in text or '吧' in text):
+                return self._conversational_reply(text)
+            if text in ['你好', 'hello', 'hi', '嗨', '您好']:
+                return ("你好! 我是 AsteriaMind。你可以说: 'X是Y' / 'X会导致Y' / '2+3=?'", "greeting")
+            if '谢谢' in text or '感谢' in text:
+                return ("不客气 🙂", "thanks")
+            # 其他元语句: 对话回复, 不强学
+            return self._conversational_reply(text)
+
+        # ── 4. 问题——查 KG ──
+        if '?' in text or '？' in text or '吗' in text or text.startswith('什么') or text.startswith('谁'):
+            return self._handle_question(text)
+
+        # ── 5. 事实陈述——只学有明确结构的 ──
+        # 必须有清晰 "X是Y" 或 "X Y" 的因果结构
+        m = re.search(r'^([\u4e00-\u9fff\w]{1,15})是([\u4e00-\u9fff\w]{1,20})[\u3002\.\?？!！]?$', text)
         if m:
             subj, obj = m.group(1).strip(), m.group(2).strip()
-            subj = re.sub(r'^(一种|一个|一只)', '', subj)
+            # 排除指示代词
+            if subj in ('这', '那', '这个', '那个', '它', '他', '她') or obj in ('什么', '谁'):
+                return self._conversational_reply(text)
             kg.add(subj, "IS_A", obj, confidence=0.7)
             db.add_relation(subj, "IS_A", obj, 0.7, source="web")
-            return (f"学会了: {subj} 是一种 {obj} ✅", "learn_fact")
+            return (f"✅ 学会了: {subj} 是一种 {obj}", "learn_fact")
 
-        # ── 因果 ──
-        m = re.search(r'(.+?)(?:能|会|可以|导致|引起)(.+)', text)
+        m = re.search(r'^([\u4e00-\u9fff\w]{1,15})(?:会|能|可以|导致|引起|产生)([\u4e00-\u9fff\w]{1,20})[\u3002\.\?？!！]?$', text)
         if m:
             subj, obj = m.group(1).strip(), m.group(2).strip()
+            if subj in ('这', '那', '这个', '那个', '它', '他', '她'):
+                return self._conversational_reply(text)
             kg.add(subj, "CAUSES", obj, confidence=0.6)
             db.add_relation(subj, "CAUSES", obj, 0.6, source="web")
-            return (f"学会了: {subj} 会导致 {obj} ✅", "learn_cause")
+            return (f"✅ 学会了: {subj} 会导致 {obj}", "learn_cause")
 
-        return (f"没太理解。试试: 'X是Y' / 'X会导致Y' / 'X能Y吗' / '2+3=?'", "unclear")
+        # ── 6. 默认: 对话回复 ──
+        return self._conversational_reply(text)
+
+    def _conversational_reply(self, text: str) -> tuple[str, str]:
+        """对话回复——不强学, 自然交流"""
+        if '你好' in text or 'hello' in text.lower():
+            return ("你好! 有什么想告诉我的吗?", "greeting")
+        if '你是谁' in text or '你叫什么' in text:
+            return ("我是 AsteriaMind, 一个不断进化的认知系统 🧠", "intro")
+        if '你能做什么' in text or '你会什么' in text:
+            return ("我可以: 学习事实 (X是Y) / 回答问题 / 做数学 / 搜索 (需要联网) / 自主进化", "capabilities")
+        if '怎么用' in text or '如何用' in text:
+            return ("试: '咖啡是饮料' / '地球是什么' / '2+3=?', 或输入 help 看命令", "howto")
+        # 默认: 友好提示
+        return (f"我记下了。但你能说得更具体吗? 比如 'X是Y' 或 'X会Y'", "casual")
+
+    def _handle_question(self, text: str) -> tuple[str, str]:
+        """问题处理"""
+        for kw in re.findall(r'[\u4e00-\u9fff\w]{2,}', text.replace("?", "").replace("？", "")):
+            if kw in ("什么", "是什么", "吗", "可以", "怎么", "如何", "为什么"): continue
+            found = kg.query(subject=kw)
+            if found:
+                lines = [f"  · {r.subject} --[{r.predicate}]--> {r.object} ({r.confidence:.0%})"
+                         for r in found[:5]]
+                return (f"关于 '{kw}' 我知道:\n" + "\n".join(lines), "kg_query")
+        return (f"我不确定这个。试试告诉我: '{text[:6] if len(text) > 6 else text}' 是什么?", "unknown")
 
 
 if __name__ == "__main__":
