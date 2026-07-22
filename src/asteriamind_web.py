@@ -12,6 +12,22 @@ import http.server, json, re, time, os, sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+SNAPSHOT_PATH = "kg_snapshot_latest.json"
+
+
+def _auto_export():
+    """每次学习后自动导出 JSON——让仪表盘能刷新看到最新状态"""
+    import json as _json
+    data = []
+    for r in kg.relations:
+        data.append({
+            "subject": r.subject, "predicate": r.predicate, "object": r.object,
+            "alpha": r.belief.alpha, "beta": r.belief.beta,
+            "confidence": r.confidence, "source": getattr(r, 'source', 'web'),
+        })
+    with open(SNAPSHOT_PATH, 'w', encoding='utf-8') as f:
+        _json.dump(data, f, ensure_ascii=False, indent=2)
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from AsteriaMind.knowledge import KnowledgeGraph
@@ -134,6 +150,8 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
             self._serve_html()
+        elif self.path == "/dashboard":
+            self._serve_dashboard()
         elif self.path == "/api/stats":
             self._json({"stats": db.stats(), "relations": db.count()})
         else:
@@ -156,6 +174,26 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(CHAT_HTML.encode('utf-8'))
+
+    def _serve_dashboard(self):
+        """简单仪表盘——实时 KG 数据"""
+        rels = db.query()[:100]
+        nodes = set()
+        html_parts = ['<h2>KG Dashboard (实时)</h2><ul>']
+        for r in rels:
+            nodes.add(r['subject']); nodes.add(r['object'])
+            color = '#3fb950' if r['confidence'] > 0.7 else '#d29922' if r['confidence'] > 0.4 else '#f85149'
+            html_parts.append(
+                f'<li><span style="color:{color}">'
+                f'{r["subject"]} --[{r["predicate"]}]--> {r["object"]}'
+                f'</span> ({r["confidence"]:.0%})</li>'
+            )
+        html_parts.append(f'</ul><p>节点: {len(nodes)} | 关系: {len(rels)}</p>')
+        html_parts.append('<meta http-equiv="refresh" content="5">')  # 每5秒刷新
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write("".join(html_parts).encode('utf-8'))
 
     def _json(self, data):
         self.send_response(200)
@@ -250,6 +288,7 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                 return self._conversational_reply(text)
             kg.add(subj, "IS_A", obj, confidence=0.7)
             db.add_relation(subj, "IS_A", obj, 0.7, source="web")
+            _auto_export()
             return (f"✅ 学会了: {subj} 是一种 {obj}", "learn_fact")
 
         m = re.search(r'^([\u4e00-\u9fff\w]{1,15})(?:会|能|可以|导致|引起|产生)([\u4e00-\u9fff\w]{1,20})[\u3002\.\?？!！]?$', text)
@@ -259,6 +298,7 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                 return self._conversational_reply(text)
             kg.add(subj, "CAUSES", obj, confidence=0.6)
             db.add_relation(subj, "CAUSES", obj, 0.6, source="web")
+            _auto_export()
             return (f"✅ 学会了: {subj} 会导致 {obj}", "learn_cause")
 
         # ── 6. 默认: 对话回复 ──
