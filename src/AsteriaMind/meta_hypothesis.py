@@ -29,9 +29,18 @@ class MetaHypothesisGenerator:
     """
 
     def __init__(self):
-        self.meta_log: list[dict] = []          # 每次探索的失败模式记录
-        self.generated: list[MetaHypothesis] = []  # 已生成的元假说
+        self.meta_log: list[dict] = []
+        self.generated: list[MetaHypothesis] = []
         self.generation_count = 0
+
+        # 诊断细化: 追踪失败集中在什么数据类型上
+        self.failure_by_type: dict[str, int] = {
+            "numeric": 0,    # 数值关系 (如 x^2 → 2x)
+            "relational": 0, # 关系模式 (如 类比/共因)
+            "temporal": 0,   # 时序模式
+            "unknown": 0,    # 未分类
+        }
+        self.refined_diagnosis: str = ""
 
     def observe(self, goals: list[dict], hypotheses: list[dict],
                 kg, exploration_round: int) -> dict:
@@ -40,9 +49,12 @@ class MetaHypothesisGenerator:
 
         patterns = self._analyze_patterns(goals, hypotheses, kg)
 
-        # 自动检测: H3/H5 主导 = 预测必然失败 (两者本质上都不可测试)
+        # 自动检测: H3/H5 主导 = 预测必然失败
         if patterns.get("top_mechanism") in ("统计偶然", "未建模模式"):
             patterns["prediction_failures"] = patterns.get("prediction_failures", 0) + 1
+            # 反思: 失败发生在什么数据上?
+            data_type = self._infer_data_type(goals, hypotheses, kg)
+            self.reflect_on_failure({"data_type": data_type})
 
         self.meta_log.append(patterns)
 
@@ -53,13 +65,30 @@ class MetaHypothesisGenerator:
 
         return {"alert": "none", "patterns": patterns}
 
-    def record_prediction_result(self, hypothesis_id: str, success: bool):
-        """记录一次假说的预测结果——用于触发功能性失效检测"""
-        if self.meta_log:
-            last = self.meta_log[-1]
-            last.setdefault("prediction_failures", 0)
-            if not success:
-                last["prediction_failures"] += 1
+    def reflect_on_failure(self, failed_prediction: dict):
+        """
+        预测失败后, MH 反思失败集中在什么数据类型上。
+        随着失败积累, 诊断自然细化到具体方向——不是预设目标。
+        """
+        data_type = failed_prediction.get("data_type", "unknown")
+        self.failure_by_type[data_type] = self.failure_by_type.get(data_type, 0) + 1
+
+        # 细化诊断
+        threshold = 3
+        if self.failure_by_type["numeric"] >= threshold:
+            self.refined_diagnosis = (
+                "预测失败集中在数值关系上——"
+                "现有假说(H1-H6)缺乏从多条例示中提取数值规律的能力。"
+                "需要一种能识别'系数线性增长/指数递减'等数值模式的操作性模板。"
+            )
+        elif self.failure_by_type["temporal"] >= threshold:
+            self.refined_diagnosis = (
+                "预测失败集中在时序模式上——需要时间序列建模能力。"
+            )
+        elif self.failure_by_type["relational"] >= threshold:
+            self.refined_diagnosis = (
+                "预测失败集中在关系模式上——需要更丰富的图推理模板。"
+            )
 
     def _analyze_patterns(self, goals, hypotheses, kg) -> dict:
         """分析本次探索中 H1-H6 的集体表现"""
@@ -107,14 +136,35 @@ class MetaHypothesisGenerator:
 
         return useless_winner >= 3 and prediction_fails >= 2 and no_other_active
 
+    def _infer_data_type(self, goals, hypotheses, kg) -> str:
+        """从目标实体和假说中推断数据类型"""
+        import re
+        # 检查 KG 中的关系是否有大量数字
+        numeric_count = 0
+        for r in kg.relations:
+            if re.findall(r'\d+', r.subject + r.object):
+                numeric_count += 1
+        if numeric_count >= len(kg.relations) * 0.6:
+            return "numeric"
+        # 检查目标实体
+        for g in goals:
+            if re.findall(r'\^?\d+', g.get("target", "")):
+                return "numeric"
+        return "relational"
+
     def _generate(self, patterns: dict, round_num: int) -> MetaHypothesis:
-        """功能性失效: H5赢但预测失败 → 缺少操作性工具"""
+        """使用细化诊断 (如果有的话) 生成更精确的元假说"""
         self.generation_count += 1
 
-        label = "现有框架存在功能性缺口——'未建模模式'是最优假说, 但无法产生可验证预测"
-        evidence = (f"最近5次探索中, H5(未建模模式)连续主导, "
-                    f"但基于H5的预测持续失败——拥有解释, 缺乏操作性工具")
-        fix = "需要一种能将'结构相似性/数值规律'转化为可验证预测的操作性模板"
+        if self.refined_diagnosis:
+            label = self.refined_diagnosis
+            evidence = (f"诊断细化: 累计 {sum(self.failure_by_type.values())} 次预测失败, "
+                        f"其中数值关系 {self.failure_by_type['numeric']} 次")
+            fix = "需要一种能将数值规律转化为可验证预测的操作性模板 (如: 从x^1→1, x^2→2x 中提取幂律)"
+        else:
+            label = "现有框架存在功能性缺口——'未建模模式'是最优假说, 但无法产生可验证预测"
+            evidence = "H3(巧合)或H5(未建模)连续主导, 但基于它们的预测持续失败——拥有解释, 缺乏操作性工具"
+            fix = "需要一种能将'结构相似性/数值规律'转化为可验证预测的操作性模板"
         conf = 0.7
 
         return MetaHypothesis(
