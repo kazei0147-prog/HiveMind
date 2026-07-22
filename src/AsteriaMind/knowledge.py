@@ -365,7 +365,12 @@ class KnowledgeGraph:
 
         result = sorted(hypos, key=lambda h: -h["confidence"])
 
-        # ── 元假说 ──
+        # ── H6: 隐藏条件 — 两方都有可能对 ──
+        h6 = self._detect_hidden_condition(target_entity, sigs)
+        if h6:
+            result.append(h6)
+
+        # ── H5: 元假说 ──
         coverage = sum(h["confidence"] for h in result[:3])
         if coverage < 0.6:
             residual = 1.0 - coverage
@@ -391,6 +396,44 @@ class KnowledgeGraph:
         # ── 奥卡姆剃刀: 重新打分, 惩罚复杂假说 ──
         result = self._apply_occam(result)
         return result
+
+    def _detect_hidden_condition(self, entity, sigs) -> dict:
+        """
+        H6: 检测"隐藏条件"模式。
+
+        当图谱中存在 X PRED P Y 和 X NOT_P Y 两个互为否定的主张,
+        且两者都有非零置信度时, 不一定是"一个对一个错"。
+        可能是: "两者在不同条件下都对"。
+
+        例如: "运动 CAUSES 体重下降" vs "运动 NOT_CAUSES 体重下降"
+              → 隐藏条件: 饮食控制、运动类型、时间尺度。
+        """
+        for r in self.relations:
+            if r.predicate.startswith("NOT_") and r.confidence > 0.05:
+                base_pred = r.predicate[4:]
+                # 找对立主张
+                opposites = [r2 for r2 in self.relations
+                             if r2.subject == r.subject
+                             and r2.predicate == base_pred
+                             and r2.object == r.object
+                             and r2.confidence > 0.1]
+                if opposites:
+                    opp = opposites[0]
+                    # 两者都有一定置信度 → 隐藏条件假说
+                    both_credible = min(r.confidence, opp.confidence) > 0.05
+                    if both_credible:
+                        return {
+                            "id": "H6",
+                            "label": f"隐藏条件: {r.subject} 可能在特定条件下 {base_pred} {r.object}, 其他条件下则不",
+                            "mechanism": "条件依赖",
+                            "detail": f"两方都有证据: {base_pred}({opp.confidence:.2f}) vs NOT_{base_pred}({r.confidence:.2f})",
+                            "confidence": round(min(0.4, (r.confidence + opp.confidence) / 2), 3),
+                            "prediction": f"如果 H6 正确, 应观察到: 控制某个未观测变量后, 矛盾消失——两者分别在不同条件下成立",
+                            "test": "条件对照实验",
+                            "discrimination": f"区别于 H1/H2: H6 认为冲突是表面的, 真正的问题是缺少条件变量",
+                            "complexity": {"free_params": 1, "assumptions": 2, "base_cost": 0.05},
+                        }
+        return None
 
     def _apply_occam(self, hypotheses: list[dict]) -> list[dict]:
         """
