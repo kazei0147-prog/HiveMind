@@ -352,6 +352,37 @@ class AsteriaShell(cmd.Cmd):
         print("════════════════════════════════════════════")
 
         # ── Step 1: 图谱自己生成目标 ──
+        # 先扫描审计标记: 有反证目标? 优先处理
+        audit_targets = [r for r in kg.relations
+                         if r.predicate in ("SEEKS_DISPROOF_OF", "NEEDS_CAUSAL_VALIDATION")]
+        if audit_targets:
+            print(f"\n  🎯 发现 {len(audit_targets)} 个审计标记, 优先处理!")
+            for at in audit_targets[:2]:
+                target_rel = at.object  # "咖啡--[CAUSES]-->清醒"
+                print(f"     🔬 反证实验: 给 \"{target_rel}\" 制造反设场景")
+
+                # 反证模式: 专门找它不成立的情况
+                subject = target_rel.split("--[")[0].strip()
+                # 对目标信念连续喂反证
+                for _ in range(10):
+                    kg.observe(subject, "CAUSES", target_rel.split("]-->")[1].strip(),
+                               correct=False, weight=0.8,
+                               context="反证标记触发的系统挑战",
+                               alternative="审计发现该信念无反证, 主动寻找反设场景")
+                # 标记已处理
+                kg.observe(at.subject, at.predicate, at.object,
+                           correct=True, weight=1.0)
+
+            print(f"\n  📊 反证实验结果:")
+            for r in kg.relations:
+                if any(at.object in r.key() for at in audit_targets[:2]):
+                    arrow = "↑" if r.confidence > 0.5 else "↓"
+                    print(f"     {arrow} {r.key()}: α={r.belief.alpha:.0f} β={r.belief.beta:.0f} 信 {r.confidence:.2f}")
+            print()
+            # 清掉已处理的审计标记
+            for at in audit_targets[:2]:
+                kg.relations = [r for r in kg.relations if r != at]
+
         goals = kg.generate_goals(max_goals=3)
         if not goals:
             print("\n  ⚠️  知识图谱是空的。先建立基础认知...")
