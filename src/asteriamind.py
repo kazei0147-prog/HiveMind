@@ -257,50 +257,71 @@ class AsteriaShell(cmd.Cmd):
             print("  MotherMind 还没做过决策。先 run <N> 让它看一些数据。")
 
     def do_run(self, arg):
-        """自主运行 N 轮: run 10
-        每轮: explore → audit → bridge → governance → 循环"""
-        n = int(arg) if arg.strip().isdigit() else 10
-        print(f"  🏃 自主运行 {n} 轮 (探索 + 审计 + 桥接 + 治理)...")
+        """自主运行: run [N] (不指定 = 永久循环)
+        每轮: 选话题→搜索→同化→探索→审计→桥接→治理"""
+        forever = not arg.strip() or not arg.strip().isdigit()
+        n = int(arg) if arg.strip().isdigit() else 99999
+        mode = "永久循环 (Ctrl+C 停止)" if forever else f"{n} 轮"
+        print(f"  🏃 自主运行 {mode}...")
 
-        for i in range(n):
-            print(f"\n  ══ 第 {i+1}/{n} 轮 ══")
+        round_num = 0
+        try:
+            while round_num < n:
+                round_num += 1
 
-            # 探索闭环
-            if kg.relations:
-                goals = kg.generate_goals(max_goals=2)
-                if goals:
-                    for goal in goals[:2]:
-                        hyps = engine.generate(kg, goal["target"], goal["type"])
-                        if hyps:
-                            top = hyps[0]
-                            print(f"  🔍 [{goal['target']}] {top['id']}: {top['label'][:60]} (奥卡姆 {top.get('occam_score',0):.2f})")
+                # ── 1. 自动选话题 + 搜索 + 同化 ──
+                if round_num % 3 == 0 and kg.relations:
+                    uncertain = [r for r in kg.relations if r.confidence < 0.5]
+                    topic = uncertain[0].subject if uncertain else kg.relations[round_num % len(kg.relations)].subject
+                    results = web_search.search(topic, max_results=2)
+                    new_claims = 0
+                    for r in results:
+                        if r.snippet and "未连接" not in r.snippet:
+                            pipe = __import__('AsteriaMind.text_pipeline', fromlist=['TextPipelineFull'])
+                            tp = pipe.TextPipelineFull(kg)
+                            result = tp.process(r.snippet, source_name=r.title[:30],
+                                              credibility=r.source_credibility)
+                            new_claims += len(result.get("claims", []))
+                    if new_claims:
+                        print(f"  📡 [{round_num}] 搜索\"{topic}\"→{new_claims}条新主张  KG:{len(kg.relations)}关系")
+                        # 更新向量
+                        new_keys = [r.key() for r in kg.relations if r.key() not in {vr.relation_key for vr in vl.relations}]
+                        if new_keys:
+                            new_rels = [r for r in kg.relations if r.key() in new_keys]
+                            vl.batch_index(new_rels)
 
-            # 审计: 怀疑自己的高置信度信念
-            if i % 3 == 0 and kg.relations:
-                audit_findings = auditor.audit(kg)
-                risky = [f for f in audit_findings if f.risk_level in ("medium", "high")]
-                if risky:
-                    print(f"  🛡️ 审计: {len(risky)} 条信念需要压力测试")
-                    for f in risky[:1]:
-                        result = falsifier.run(kg, f.relation_key, max_rounds=5)
-                        print(f"     {f.relation_key}: {result.stop_reason}")
-
-            # 桥接: 跨层发现
-            if i % 5 == 0 and len(vl.relations) >= 3:
-                bridge.discover()
-
-            # 治理: 审查模板健康度
-            if i % 10 == 0:
-                governance.review(ROUND + i)
-                # 认知演化检测
+                # ── 2. 探索 ──
                 if kg.relations:
                     goals = kg.generate_goals(max_goals=1)
-                    engine.generate(kg, goals[0]["target"], goals[0]["type"]) if goals else None
+                    if goals:
+                        engine.generate(kg, goals[0]["target"], goals[0]["type"])
 
-        print(f"\n  ✅ 完成 {n} 轮自主运行。")
-        active = len([t for t in tmpl_registry.templates.values() if t.status == "active"])
-        print(f"     KG: {len(kg.relations)} 关系 | 向量: {len(vl.relations)} 条 | "
-              f"模板: {active} 活跃")
+                # ── 3. 审计 ──
+                if round_num % 5 == 0 and kg.relations:
+                    risky = [f for f in auditor.audit(kg) if f.risk_level in ("medium", "high")]
+                    if risky:
+                        falsifier.run(kg, risky[0].relation_key, max_rounds=3)
+
+                # ── 4. 桥接 ──
+                if round_num % 7 == 0 and len(vl.relations) >= 3:
+                    bridge.discover()
+
+                # ── 5. 治理 ──
+                if round_num % 15 == 0:
+                    governance.review(round_num)
+
+                # ── 6. 定期保存 ──
+                if round_num % 50 == 0:
+                    kg.save("asteriamind_autosave.json")
+                    print(f"  💾 [{round_num}] 自动保存: {len(kg.relations)} 关系")
+
+        except KeyboardInterrupt:
+            print(f"\n  ⏸️  运行 {round_num} 轮后中断。")
+            kg.save("asteriamind_autosave.json")
+
+        if not forever:
+            active = len([t for t in tmpl_registry.templates.values() if t.status == "active"])
+            print(f"  ✅ 完成。KG:{len(kg.relations)} 向量:{len(vl.relations)} 模板:{active}")
 
     def do_upload(self, arg):
         """上传数据点: upload x=5.2 y=42.3"""

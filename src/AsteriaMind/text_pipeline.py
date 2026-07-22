@@ -110,8 +110,9 @@ class TextPipelineFull:
         元假说层可能会基于这个反射来调整管道本身。
         """
         acc_rate = source.acceptance_rate
-        rej_rate = results["rejected"] / max(1, sum(results.values()))
-        confl_rate = results["conflicted"] / max(1, sum(results.values()))
+        total = results["accepted"] + results["conflicted"] + results["rejected"]
+        rej_rate = results["rejected"] / max(1, total)
+        confl_rate = results["conflicted"] / max(1, total)
 
         if confl_rate > 0.5:
             return (f"高度冲突: {confl_rate*100:.0f}% 的主张与已有信念冲突。"
