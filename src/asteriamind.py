@@ -34,6 +34,7 @@ from AsteriaMind.validator import CrossValidator
 from AsteriaMind.portal import CuriosityEngine
 from AsteriaMind.exploration_reward import DelayedVerificationQueue, ExplorationReward
 from AsteriaMind.datasource import LibrarySource, DataPipeline, TextIngestor, KnowledgeAssimilator
+from AsteriaMind.meta_hypothesis import MetaHypothesisGenerator
 
 random.seed(42)
 
@@ -54,6 +55,7 @@ library = LibrarySource()
 pipeline = DataPipeline(kg, library)
 ingestor = TextIngestor()
 assimilator = KnowledgeAssimilator(kg, pipeline)
+mhg = MetaHypothesisGenerator()
 
 # 预填充知识库 (AM 可以自己查)
 library.add_fact("物体A", "HAS", "属性X", 0.9)
@@ -375,6 +377,16 @@ class AsteriaShell(cmd.Cmd):
             print(f"     如果 {h1['id']} 正确: {h1['prediction']}")
             print(f"     如果 {h2['id']} 正确: {h2['prediction']}")
             print(f"     🧪 区分实验: 采样 20 个点看实际模式")
+
+        # ── 元假说检测 ──
+        meta_result = mhg.observe(goals, hypotheses, kg, ROUND)
+        if meta_result.get("alert") == "meta_hypothesis_generated":
+            mh = meta_result["hypothesis"]
+            print(f"\n  🧬 元假说: 不是关于世界, 是关于我自己的思考方式")
+            print(f"     {mh.id}: {mh.label}")
+            print(f"     📊 证据: {mh.evidence}")
+            print(f"     🔧 建议: {mh.proposed_fix}")
+            print(f"     置信度: {mh.confidence:.2f}")
 
         # ── Step 4: 采样 + 执行 ──
         print(f"\n  🧪 采样 20 个点...")
