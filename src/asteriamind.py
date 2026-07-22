@@ -396,13 +396,14 @@ class AsteriaShell(cmd.Cmd):
             print(f"     {evo_result['new_template']}")
             if "evaluation" in evo_result:
                 print(f"     审稿: {evo_result['evaluation']}")
-            if "simulation" in evo_result:
-                sim = evo_result["simulation"]
-                print(f"     小世界验证: {sim['accuracy']:.0%} 准确率 ({sim['correct']}/{sim['predictions']})")
+            if "validation" in evo_result:
+                val = evo_result["validation"]
+                print(f"     现实验证: {val['accuracy']:.0%} 准确率 ({val.get('correct',0)}/{val.get('predictions',0)})")
+                print(f"     基线: {val.get('baseline_accuracy',0):.0%}  提升: {val.get('improvement',0):+.2f}")
         elif evo_result.get("evolution") == "rejected_at_evaluation":
             print(f"\n  ❌ 候选理论未通过审稿: {evo_result.get('evaluation', {})}")
-        elif evo_result.get("evolution") == "rejected_at_simulation":
-            print(f"\n  ❌ 候选理论未通过小世界验证")
+        elif evo_result.get("evolution") == "rejected_at_validation":
+            print(f"\n  ❌ 候选理论未通过现实验证")
 
         # ── Step 4: 采样 + 执行 ──
         print(f"\n  🧪 采样 20 个点...")
