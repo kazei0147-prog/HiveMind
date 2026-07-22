@@ -49,6 +49,7 @@ from AsteriaMind.cross_layer import CrossLayerBridge, QueryRouter
 from AsteriaMind.knowledge_request import (
     KnowledgeRequestMonitor, KnowledgeAcquisitionExecutor, KnowledgeRequest,
 )
+from AsteriaMind.math_reasoner import MathReasoner
 
 random.seed(42)
 
@@ -86,6 +87,16 @@ krm = KnowledgeRequestMonitor(knowledge_queue)
 kae = None  # 在 vl 之后初始化
 vl = VectorLayer(dim=128)
 kae = KnowledgeAcquisitionExecutor(knowledge_queue, web_search, kg, vl)
+math_engine = MathReasoner()
+
+# 注册数学推理为假说模板
+tmpl_registry.register(HypothesisTemplate(
+    id="H_MATH", name="数学推理", mechanism="符号计算",
+    condition_description="查询包含数字或运算符时触发",
+    complexity_cost=0.02, free_params=0, assumptions=0,
+    condition_fn=lambda kg, e, s: True,
+    generate_fn=lambda kg, e, s: [],
+))
 provenance = ProvenanceGuard()
 reviewer = HumanReviewInterface(kg, provenance)
 bridge = CrossLayerBridge(kg, vl)
@@ -456,7 +467,26 @@ class AsteriaShell(cmd.Cmd):
         if result.get("bridge_insight"):
             print(f"  🌉 桥接发现: {result['bridge_insight'][0] if result['bridge_insight'] else ''}")
 
-    def do_provenance(self, arg):
+    def do_math(self, arg):
+        """数学推理: math <表达式|代数|模式|转换>"""
+        query = arg.strip()
+        if not query:
+            print("  用法: math 2+3 | math x+5=10 | math 2,4,6,8,? | math 1 mile km")
+            return
+
+        result = math_engine.solve(query)
+        if result is None:
+            print(f"  ❓ 无法解析: \"{query}\"")
+            return
+
+        print(f"  🧮 {result.expression}")
+        for step in result.steps:
+            print(f"     {step}")
+        print(f"     结果: {result.result}  (置信度 {result.confidence})")
+
+        # 存入 KG: 数学结果作为 derived 知识
+        kg.add(query.strip(), "EQUALS", str(result.result),
+               confidence=result.confidence, source="math_derived")
         """来源审查: provenance <key>"""
         key = arg.strip()
         if not key:
