@@ -399,18 +399,18 @@
     "subject": "is",
     "predicate": "MEANS",
     "object": "copula verb",
-    "alpha": 25.5,
+    "alpha": 51.0,
     "beta": 1.5000000000000002,
-    "confidence": 0.9444444444444444,
+    "confidence": 0.9714285714285714,
     "source": "observed"
   },
   {
     "subject": "can",
     "predicate": "MEANS",
     "object": "auxiliary verb",
-    "alpha": 25.5,
+    "alpha": 51.0,
     "beta": 1.5000000000000002,
-    "confidence": 0.9444444444444444,
+    "confidence": 0.9714285714285714,
     "source": "observed"
   },
   {
@@ -426,9 +426,9 @@
     "subject": "orbits",
     "predicate": "MEANS",
     "object": "relation verb",
-    "alpha": 25.5,
+    "alpha": 51.0,
     "beta": 1.5000000000000002,
-    "confidence": 0.9444444444444444,
+    "confidence": 0.9714285714285714,
     "source": "observed"
   },
   {
@@ -438,6 +438,33 @@
     "alpha": 25.5,
     "beta": 1.5000000000000002,
     "confidence": 0.9444444444444444,
+    "source": "observed"
+  },
+  {
+    "subject": "swims",
+    "predicate": "MEANS",
+    "object": "action verb for moving in water",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "swims",
+    "predicate": "MEANS",
+    "object": "action verb",
+    "alpha": 17.0,
+    "beta": 1.5000000000000002,
+    "confidence": 0.918918918918919,
+    "source": "observed"
+  },
+  {
+    "subject": "barks",
+    "predicate": "MEANS",
+    "object": "action verb for dog sound",
+    "alpha": 17.0,
+    "beta": 1.5000000000000002,
+    "confidence": 0.918918918918919,
     "source": "observed"
   },
   {
@@ -705,27 +732,27 @@
     "subject": "cat",
     "predicate": "IS_A",
     "object": "animal",
-    "alpha": 21.0,
+    "alpha": 42.0,
     "beta": 3.0000000000000004,
-    "confidence": 0.875,
+    "confidence": 0.9333333333333333,
     "source": "observed"
   },
   {
     "subject": "dog",
     "predicate": "IS_A",
     "object": "mammal",
-    "alpha": 21.0,
+    "alpha": 28.0,
     "beta": 3.0000000000000004,
-    "confidence": 0.875,
+    "confidence": 0.9032258064516129,
     "source": "observed"
   },
   {
     "subject": "earth",
     "predicate": "ORBITS",
     "object": "sun",
-    "alpha": 14.0,
+    "alpha": 21.0,
     "beta": 3.0000000000000004,
-    "confidence": 0.8235294117647058,
+    "confidence": 0.875,
     "source": "observed"
   },
   {
@@ -759,6 +786,60 @@
     "subject": "Can you tell me what",
     "predicate": "IS_A",
     "object": "the derivative of x squared",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "Apple",
+    "predicate": "IS_A",
+    "object": "苹果",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "What",
+    "predicate": "IS_A",
+    "object": "is",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "What",
+    "predicate": "IS_A",
+    "object": "can",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "What",
+    "predicate": "IS_A",
+    "object": "orbits",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "What",
+    "predicate": "IS_A",
+    "object": "a",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "What",
+    "predicate": "IS_A",
+    "object": "swims",
     "alpha": 7.0,
     "beta": 3.0000000000000004,
     "confidence": 0.7,
@@ -885,9 +966,9 @@
     "subject": "bird",
     "predicate": "CAN",
     "object": "fly",
-    "alpha": 18.0,
+    "alpha": 36.0,
     "beta": 4.0,
-    "confidence": 0.8181818181818182,
+    "confidence": 0.9,
     "source": "observed"
   },
   {
@@ -1005,6 +1086,33 @@
     "alpha": 3.0,
     "beta": 7.0,
     "confidence": 0.3,
+    "source": "observed"
+  },
+  {
+    "subject": "barks",
+    "predicate": "MEANS",
+    "object": "action verb",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "dog",
+    "predicate": "DOES",
+    "object": "barks",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "fish",
+    "predicate": "DOES",
+    "object": "swims",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
     "source": "observed"
   }
 ]

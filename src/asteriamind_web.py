@@ -317,8 +317,14 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
             # 其他元语句: 对话回复, 不强学
             return self._conversational_reply(text)
 
-        # ── 4. 问题——查 KG (在事实学习之前!) ──
-        if '?' in text or '？' in text or '吗' in text or '是什么' in text or '是谁' in text or text.startswith('什么') or text.startswith('谁'):
+        # ── 4. 问题——查 KG (中英文, 在事实学习之前!) ──
+        tl = text.lower().strip()
+        is_cn_q = ('?' in text or '？' in text or '吗' in text or '是什么' in text or '是谁' in text
+                   or text.startswith('什么') or text.startswith('谁'))
+        is_en_q = (tl.startswith(('what', 'who', 'how', 'where', 'when', 'why'))
+                   or tl.startswith(('is ', 'are ', 'can ', 'does ', 'do ', 'could ', 'would '))
+                   or 'tell me what' in tl or 'tell me who' in tl)
+        if is_cn_q or is_en_q:
             return self._handle_question(text)
 
         # ── 5. 事实陈述——多句型解析 (去掉了 ^ 开头限制!) ──
@@ -352,17 +358,20 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                             db.add_relation(subj, "CAN", obj, 0.6, source="kg_grammar")
                             _auto_export()
                             return (f"✅ Learned: {subj} can {obj} (KG词性: {w} IS auxiliary_verb)", "learn_can")
-                if "relation" in wtype.lower() and w not in ("is", "are", "can", "a", "an", "the"):
+                if "relation" in wtype.lower() or "action" in wtype.lower():
                     idx = text.lower().find(w)
                     if idx > 0:
                         subj = text[:idx].strip()
                         obj = text[idx + len(w):].strip()
                         pred = w.upper()
-                        if subj and obj:
+                        if subj:
+                            if not obj:
+                                obj = w  # 不及物动词: 宾语=动词本身
+                                pred = "DOES"
                             kg.add(subj, pred, obj, confidence=0.7)
                             db.add_relation(subj, pred, obj, 0.7, source="kg_grammar")
                             _auto_export()
-                            return (f"✅ Learned: {subj} {pred} {obj} (KG词性: {w} IS relation_verb)", "learn_fact")
+                            return (f"✅ Learned: {subj} {pred} {obj} (KG词性: {w})", "learn_fact")
 
         # 先按中文分隔符拆句: 逗号/分号/句号/也/和/还/然后
         clauses = re.split(r'[，,；;。]|(?<=[\u4e00-\u9fff])(?:也|还|和|然后|而且)(?=[\u4e00-\u9fff])', text)
@@ -579,15 +588,24 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                          for r in found[:5]]
                 return (f"关于 '{subj}' 我知道:\n" + "\n".join(lines), "kg_query")
 
-        # 通用问题
+        # 通用问题 — 中文 + 英文词
+        skip_words = {'什么','是什么','吗','可以','怎么','如何','为什么',
+                      'what','who','how','where','when','why','is','are',
+                      'can','does','do','a','an','the','tell','me','you','of','to','i'}
         for kw in re.findall(r'[\u4e00-\u9fff\w]{2,}', text.replace("?", "").replace("？", "")):
-            if kw in ("什么", "是什么", "吗", "可以", "怎么", "如何", "为什么"): continue
+            if kw.lower() in skip_words: continue
             found = kg.query(subject=kw)
             if found:
                 lines = [f"  · {r.subject} --[{r.predicate}]--> {r.object} ({r.confidence:.0%})"
                          for r in found[:5]]
                 return (f"关于 '{kw}' 我知道:\n" + "\n".join(lines), "kg_query")
-        return (f"我不确定。试试告诉我: '{text[:6] if len(text)>6 else text}' 是什么?", "unknown")
+        # 英文单字查询
+        for w in text.lower().rstrip('?').split():
+            if len(w) <= 2 or w in ('what','who','how','where','when','why','is','are','can','does','do','a','an','the','tell','me','you','of','to','i'): continue
+            for r in kg.relations:
+                if r.subject.lower() == w:
+                    return (f"{r.subject} --[{r.predicate}]--> {r.object} ({r.confidence:.0%})", "kg_query")
+        return (f"我不确定。试试告诉我: '{text[:15]}' 是什么?", "unknown")
 
     def _lookup_word_type(self, word: str) -> str:
         """查 KG: 这个词是什么词性？"""
