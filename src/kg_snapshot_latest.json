@@ -619,5 +619,41 @@
     "beta": 4.0,
     "confidence": 0.6,
     "source": "observed"
+  },
+  {
+    "subject": "就",
+    "predicate": "IS_A",
+    "object": "这样",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "就不",
+    "predicate": "IS_A",
+    "object": "一种这样",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "就",
+    "predicate": "HAS_是非常对",
+    "object": "指",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "错了",
+    "predicate": "IS_A",
+    "object": "不对",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
   }
 ]
