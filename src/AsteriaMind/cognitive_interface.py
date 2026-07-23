@@ -692,6 +692,17 @@ class CognitiveInterface:
 
         # ── 层二: Pragmatic — "为什么说?" ──
         if best_struct:
+            # 事实学习检测: 有主语+关系+宾语, 不是问句 → 学习!
+            struct = best_struct.structure
+            is_statement = (struct.get("subject") and struct.get("predicate")
+                            and struct.get("object")
+                            and struct.get("predicate") in ("IS_A","CAN","CAUSES","ORBITS","DOES")
+                            and not struct.get("question"))
+            if is_statement:
+                result["action"] = "fact_learn"
+                result["pragmatic"] = None
+                return result
+
             prag_hyps = self.pragmatic.hypothesize(best_struct, context)
             best_prag = prag_hyps[0] if prag_hyps else None
             result["pragmatic"] = best_prag
@@ -709,10 +720,20 @@ class CognitiveInterface:
 
         return result
 
-    def generate_reply(self, result: dict) -> str:
+    def generate_reply(self, result: dict, text: str = "") -> str:
         """根据语义+语用+认知结果, 生成回复"""
+        action = result.get("action", "")
         sem = result.get("semantic")
         prag = result.get("pragmatic")
+
+        # 事实学习
+        if action == "fact_learn" and sem:
+            s = sem.structure
+            subj, pred, obj = s.get("subject"), s.get("predicate"), s.get("object")
+            if subj and pred and obj and self.kg and self.db:
+                self.kg.add(subj, pred, obj, confidence=0.7)
+                self.db.add_relation(subj, pred, obj, 0.7, source="web")
+            return f"✅ 学会了: {subj} {pred} {obj}"
 
         # KG 查询: 是否有已知事实
         kg_hits = []
@@ -741,6 +762,8 @@ class CognitiveInterface:
                     return "关于这个我知道:\n" + "\n".join(lines)
                 return "关于这个我还不知道。你能教我吗?"
             if prag.type == "social_ritual":
+                if any(w in text for w in ('再见', '拜拜', 'bye', '晚安')):
+                    return "再见! 随时回来 👋"
                 return "你好呀~ 🌻"
             if prag.type == "teach":
                 return "好的, 我在听! 你想教我什么?"

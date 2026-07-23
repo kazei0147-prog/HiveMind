@@ -294,7 +294,7 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
 
         # 三层管道: Semantic → Pragmatic → 回复
         result = ci.process(text)
-        reply = ci.generate_reply(result)
+        reply = ci.generate_reply(result, text)
         return (reply, result.get("action", "unknown"))
 
     def _process_legacy(self, text: str) -> tuple[str, str]:
