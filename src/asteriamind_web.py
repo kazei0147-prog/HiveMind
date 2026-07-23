@@ -681,7 +681,9 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                     if r2.subject == r.object and r2.predicate == "MEANS":
                         return (f"💡 '{r.subject}' = '{r.object}' → {r2.object}", "synonym")
 
-        # 自我介绍——先查 KG, 没教过才硬编码
+        # 能力查询 + 自我介绍 (上下文匹配之前!)
+        if any(p in text for p in ('你会什么', '你能做什么', '你都会啥', '你会干啥', '你的能力', '你会哪些')):
+            return ("我可以: 学事实 (X是Y) / 解答提问 / 做数学 / 记偏好 / 推理知识链。你想让我学什么?", "capabilities")
         if any(p in text for p in ('你是谁', '你叫什么', '你的名字', '怎么称呼', '啥名字', '叫什么名字')):
             name = "AsteriaMind"
             role = "一个正在进化的认知系统"
@@ -729,9 +731,9 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
             for r in kg.relations:
                 if r.subject == text:
                     return (f"我知道 {text}: {r.predicate} {r.object}", "kg_hint")
-            # 检查上下文: 刚才是不是在聊这个
-            if context and text in context:
-                return (f"嗯, 我们刚聊到这个呢。你对它有什么想说的?", "context_match")
+            # 上下文指代: 仅当输入极短 (<8字) 且出现在近期对话中
+            if context and len(text) <= 8 and text in context:
+                return (f"嗯, 我们刚聊到这个呢。继续说吧?", "context_match")
             return (f"「{text}」? 还不太了解呢。你能教我吗?", "knowledge_gap")
 
         # 兜底——不再是一句死话
