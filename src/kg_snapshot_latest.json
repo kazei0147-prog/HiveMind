@@ -30,9 +30,9 @@
     "subject": "打招呼",
     "predicate": "REPLIES_WITH",
     "object": "你好呀～",
-    "alpha": 45.0,
+    "alpha": 63.0,
     "beta": 0.9999999999999998,
-    "confidence": 0.9782608695652174,
+    "confidence": 0.984375,
     "source": "observed"
   },
   {
@@ -468,6 +468,33 @@
     "source": "observed"
   },
   {
+    "subject": "barks",
+    "predicate": "MEANS",
+    "object": "action verb",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "我",
+    "predicate": "MEANS",
+    "object": "一个喜欢学习新东西的 AI",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "my_name",
+    "predicate": "MEANS",
+    "object": "AsteriaMind",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
     "subject": "搜索",
     "predicate": "IS_SYNONYM",
     "object": "查找",
@@ -846,6 +873,24 @@
     "source": "observed"
   },
   {
+    "subject": "dog",
+    "predicate": "DOES",
+    "object": "barks",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
+    "subject": "fish",
+    "predicate": "DOES",
+    "object": "swims",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
+  },
+  {
     "subject": "你",
     "predicate": "CAUSES",
     "object": "试着学习如何和我聊天呢",
@@ -1089,30 +1134,12 @@
     "source": "observed"
   },
   {
-    "subject": "barks",
+    "subject": "我",
     "predicate": "MEANS",
-    "object": "action verb",
+    "object": "一个喜欢学习的 AI",
     "alpha": 8.5,
     "beta": 1.5000000000000002,
     "confidence": 0.85,
-    "source": "observed"
-  },
-  {
-    "subject": "dog",
-    "predicate": "DOES",
-    "object": "barks",
-    "alpha": 7.0,
-    "beta": 3.0000000000000004,
-    "confidence": 0.7,
-    "source": "observed"
-  },
-  {
-    "subject": "fish",
-    "predicate": "DOES",
-    "object": "swims",
-    "alpha": 7.0,
-    "beta": 3.0000000000000004,
-    "confidence": 0.7,
     "source": "observed"
   }
 ]

@@ -313,7 +313,9 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                     if r.predicate == "REPLIES_WITH" and ("谢" in r.subject or "thank" in r.subject.lower()):
                         return (r.object, "pref_reply")
                 return (["不客气 🙂", "没事, 应该的!", "随时为你效劳~"][hash(text) % 3], "thanks")
-                return ("不客气 🙂", "thanks")
+            # 闲聊口语: 提前拦截, 别让它们落到事实解析
+            if any(w in text for w in ('真的假的', '哈哈哈', '哈哈', '笑死', '😂', '好吧', '嗯嗯', '哦哦', '好的', '行吧', '知道了')):
+                return self._conversational_reply(text)
             # 其他元语句: 对话回复, 不强学
             return self._conversational_reply(text)
 
@@ -615,28 +617,63 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
         return ""
 
     def _conversational_reply(self, text: str) -> tuple[str, str]:
-        """对话回复——用户教的偏好优先, 再默认"""
+        """对话回复——从 KG 取身份, 不再硬编码"""
+        # 偏好优先
         for r in kg.relations:
             if r.predicate == "REPLIES_WITH":
-                pref = r.subject
-                if pref in text:
+                if r.subject in text:
                     return (r.object, "pref_reply")
                 for ch in re.findall(r'[\u4e00-\u9fff]{2,}', text):
-                    if ch in pref and len(ch) >= 2:
+                    if ch in r.subject and len(ch) >= 2:
                         return (r.object, "pref_reply")
+
+        # 同义词
         for r in kg.relations:
             if r.predicate == "IS_SYNONYM" and r.subject in text:
                 for r2 in kg.relations:
                     if r2.subject == r.object and r2.predicate == "MEANS":
                         return (f"💡 '{r.subject}' = '{r.object}' → {r2.object}", "synonym")
-        if '你好' in text or 'hello' in text.lower():
-            replies = ["你好! 我是 AsteriaMind 🌻", "嗨! 我在呢。", "在呢! 说吧。"]
+
+        # 自我介绍——先查 KG, 没教过才硬编码
+        if any(p in text for p in ('你是谁', '你叫什么', '你的名字', '怎么称呼', '啥名字', '叫什么名字')):
+            name = "AsteriaMind"
+            role = "一个正在进化的认知系统"
+            # KG 里有教的自我介绍吗？
+            for r in kg.relations:
+                if r.predicate == "MEANS" and r.subject in ("我", "my_name", "自我介绍"):
+                    name = r.object
+                if r.subject == "我":
+                    if r.predicate == "IS_A":
+                        role = r.object
+            replies = [
+                f"我叫 {name}, {role} 🧠 是你在培养的 AI。",
+                f"我是 {name}呀~ {role}。你教什么我就学什么!",
+                f"{name} 就是我! {role}, 还在不断成长。",
+            ]
+            return (replies[hash(text) % len(replies)], "intro")
+
+        # 问候
+        if any(w in text for w in ('你好', 'hello', 'hi', '嗨', '您好', '早安', '早上好', '晚上好')):
+            replies = ["你好呀~ 🌻", "嗨! 我在呢。", "你好! 今天想聊什么?", "在呢! 说吧~"]
             return (replies[hash(text) % len(replies)], "greeting")
-        if '你是谁' in text:
-            return ("我是 AsteriaMind, 一个不断进化的认知系统 🧠", "intro")
-        if '谢谢' in text:
-            return (["不客气 🙂", "没事!", "随时效劳~"][hash(text) % 3], "thanks")
-        defaults = ["我记下了。试试更具体地说?", "嗯嗯。想告诉我什么知识吗?", "收到! 你可以教我任何事 😊"]
+
+        # 感谢
+        if '谢谢' in text or '感谢' in text:
+            return (["不客气 🙂", "没事!", "随时效劳~", "嘿嘿, 应该的"][hash(text) % 4], "thanks")
+
+        # 轻量对话反馈
+        if any(w in text for w in ('真的假的', '哈哈哈', '哈哈', '笑死', '😂')):
+            return (["😄 真的!", "哈哈哈, 是吧!", "笑什么笑, 我很认真的!"][hash(text) % 3], "laugh")
+        if any(w in text for w in ('好吧', '嗯嗯', '哦哦', '嗯', '好')):
+            return (["嗯!", "好的~", "继续说吧!"][hash(text) % 3], "ack")
+
+        # 兜底——不再是一句死话
+        defaults = [
+            "我记下了。试试更具体地说? 比如 '太阳是恒星'",
+            "嗯嗯。想告诉我什么知识吗?",
+            "收到! 你可以教我任何事 😊",
+            "好的, 我在听! 想让我学什么?",
+        ]
         return (defaults[hash(text) % len(defaults)], "casual")
 
 
