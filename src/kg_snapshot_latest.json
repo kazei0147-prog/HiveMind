@@ -198,6 +198,96 @@
     "source": "observed"
   },
   {
+    "subject": "是",
+    "predicate": "MEANS",
+    "object": "系动词，连接主语和说明",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "会",
+    "predicate": "MEANS",
+    "object": "助动词，表示能力，不是因果关系",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "能",
+    "predicate": "MEANS",
+    "object": "助动词，表示可能性",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "的",
+    "predicate": "MEANS",
+    "object": "结构助词，连接修饰和被修饰",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "一种",
+    "predicate": "MEANS",
+    "object": "量词，表示类别，不改变宾语含义",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "也",
+    "predicate": "MEANS",
+    "object": "副词，表示同样，不是主语的一部分",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "在",
+    "predicate": "MEANS",
+    "object": "介词，表示位置或状态",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "主语是",
+    "predicate": "MEANS",
+    "object": "宾语 核心句型，表达从属关系",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "主语围绕宾语",
+    "predicate": "MEANS",
+    "object": "关系句型，表达轨道运动",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
+    "subject": "主语会动作",
+    "predicate": "MEANS",
+    "object": "能力句型，不是因果关系",
+    "alpha": 8.5,
+    "beta": 1.5000000000000002,
+    "confidence": 0.85,
+    "source": "observed"
+  },
+  {
     "subject": "搜索",
     "predicate": "IS_SYNONYM",
     "object": "查找",
@@ -372,9 +462,9 @@
     "subject": "猫",
     "predicate": "IS_A",
     "object": "哺乳动物",
-    "alpha": 28.0,
+    "alpha": 35.0,
     "beta": 3.0000000000000004,
-    "confidence": 0.9032258064516129,
+    "confidence": 0.9210526315789473,
     "source": "observed"
   },
   {
@@ -390,9 +480,9 @@
     "subject": "地球",
     "predicate": "ORBITS",
     "object": "太阳转",
-    "alpha": 14.0,
+    "alpha": 21.0,
     "beta": 3.0000000000000004,
-    "confidence": 0.8235294117647058,
+    "confidence": 0.875,
     "source": "observed"
   },
   {
@@ -657,18 +747,9 @@
     "source": "observed"
   },
   {
-    "subject": "是",
-    "predicate": "MEANS",
-    "object": "系动词，连接主语和说明",
-    "alpha": 8.5,
-    "beta": 1.5000000000000002,
-    "confidence": 0.85,
-    "source": "observed"
-  },
-  {
     "subject": "会",
     "predicate": "MEANS",
-    "object": "助动词，表示能力，不是因果关系",
+    "object": "助动词,表示能力,不是因果关系",
     "alpha": 8.5,
     "beta": 1.5000000000000002,
     "confidence": 0.85,
@@ -677,34 +758,16 @@
   {
     "subject": "能",
     "predicate": "MEANS",
-    "object": "助动词，表示可能性",
+    "object": "助动词,表示可能性",
     "alpha": 8.5,
     "beta": 1.5000000000000002,
     "confidence": 0.85,
     "source": "observed"
   },
   {
-    "subject": "的",
+    "subject": "是",
     "predicate": "MEANS",
-    "object": "结构助词，连接修饰和被修饰",
-    "alpha": 8.5,
-    "beta": 1.5000000000000002,
-    "confidence": 0.85,
-    "source": "observed"
-  },
-  {
-    "subject": "一种",
-    "predicate": "MEANS",
-    "object": "量词，表示类别，不改变宾语含义",
-    "alpha": 8.5,
-    "beta": 1.5000000000000002,
-    "confidence": 0.85,
-    "source": "observed"
-  },
-  {
-    "subject": "也",
-    "predicate": "MEANS",
-    "object": "副词，表示同样，不是主语的一部分",
+    "object": "系动词,连接主语和说明",
     "alpha": 8.5,
     "beta": 1.5000000000000002,
     "confidence": 0.85,
@@ -713,37 +776,37 @@
   {
     "subject": "在",
     "predicate": "MEANS",
-    "object": "介词，表示位置或状态",
+    "object": "介词,表示位置",
     "alpha": 8.5,
     "beta": 1.5000000000000002,
     "confidence": 0.85,
     "source": "observed"
   },
   {
-    "subject": "主语是",
-    "predicate": "MEANS",
-    "object": "宾语 核心句型，表达从属关系",
-    "alpha": 8.5,
-    "beta": 1.5000000000000002,
-    "confidence": 0.85,
+    "subject": "星星",
+    "predicate": "CAN",
+    "object": "发光",
+    "alpha": 6.0,
+    "beta": 4.0,
+    "confidence": 0.6,
     "source": "observed"
   },
   {
-    "subject": "主语围绕宾语",
-    "predicate": "MEANS",
-    "object": "关系句型，表达轨道运动",
-    "alpha": 8.5,
-    "beta": 1.5000000000000002,
-    "confidence": 0.85,
+    "subject": "火",
+    "predicate": "CAN",
+    "object": "烧水",
+    "alpha": 6.0,
+    "beta": 4.0,
+    "confidence": 0.6,
     "source": "observed"
   },
   {
-    "subject": "主语会动作",
-    "predicate": "MEANS",
-    "object": "能力句型，不是因果关系",
-    "alpha": 8.5,
-    "beta": 1.5000000000000002,
-    "confidence": 0.85,
+    "subject": "水",
+    "predicate": "CAN",
+    "object": "灭火",
+    "alpha": 6.0,
+    "beta": 4.0,
+    "confidence": 0.6,
     "source": "observed"
   }
 ]

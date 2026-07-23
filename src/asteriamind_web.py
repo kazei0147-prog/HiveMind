@@ -376,14 +376,29 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                 learned.append(f"{subj}属于{obj}")
                 continue
 
-            # 句型5: "X会/能/导致Y"
-            m = re.search(r'([\u4e00-\u9fff\w]{1,15})(?:会|能|可以|导致|引起|产生)([\u4e00-\u9fff\w]{1,20})', clause)
+            # 句型5: "X会/能/导致Y" — 先查 KG 词性再决定是因果还是能力
+            m = re.search(r'([\u4e00-\u9fff\w]{1,15})(会|能|可以|导致|引起|产生)([\u4e00-\u9fff\w]{1,20})', clause)
             if m:
-                subj, obj = m.group(1).strip(), m.group(2).strip()
-                if subj in ('这', '那', '这个', '那个', '它', '他', '她', '你', '我'): continue
-                kg.add(subj, "CAUSES", obj, confidence=0.6)
-                db.add_relation(subj, "CAUSES", obj, 0.6, source="web")
-                learned.append(f"{subj}会导致{obj}")
+                subj, connector, obj = m.group(1).strip(), m.group(2), m.group(3).strip()
+                if subj in ('这', '那', '它', '他', '她', '你', '我'): continue
+
+                # ── 查 KG: 这个词是什么词性？ ──
+                is_ability = False
+                for r in kg.relations:
+                    if r.subject == connector and r.predicate in ("MEANS", "IS_A"):
+                        if "助动词" in r.object or "能力" in r.object or "不是因果关系" in r.object:
+                            is_ability = True
+                            break
+
+                if is_ability and connector in ("会", "能", "可以"):
+                    # 能力句: X CAN Y, 非因果!
+                    kg.add(subj, "CAN", obj, confidence=0.6)
+                    db.add_relation(subj, "CAN", obj, 0.6, source="web")
+                    learned.append(f"{subj}有{obj}的能力 (从KG词性推断)")
+                else:
+                    kg.add(subj, "CAUSES", obj, confidence=0.6)
+                    db.add_relation(subj, "CAUSES", obj, 0.6, source="web")
+                    learned.append(f"{subj}会导致{obj}")
                 continue
 
         if learned:
