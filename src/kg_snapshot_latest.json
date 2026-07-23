@@ -1141,5 +1141,14 @@
     "beta": 7.0,
     "confidence": 0.3,
     "source": "observed"
+  },
+  {
+    "subject": "塔罗牌",
+    "predicate": "IS_A",
+    "object": "占卜工具",
+    "alpha": 7.0,
+    "beta": 3.0000000000000004,
+    "confidence": 0.7,
+    "source": "observed"
   }
 ]

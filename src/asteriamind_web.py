@@ -11,6 +11,11 @@ AsteriaMind Web Chat — 浏览器交互窗口 (v3.2)
 import http.server, json, re, time, os, sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from collections import deque
+
+# ── 对话上下文: 每个会话保留最近 5 轮 ──
+SESSION_CONTEXT: dict[str, list[str]] = {}  # ip -> [last topics]
+MAX_CONTEXT = 5
 
 SNAPSHOT_PATH = "kg_snapshot_latest.json"
 
@@ -214,7 +219,20 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
             if not text:
                 self._json({"reply": "请说点什么", "error": True})
                 return
-            reply, action = self._process(text)
+
+            # ── 对话上下文 ──
+            sid = self.client_address[0]  # IP 作为简易会话 ID
+            if sid not in SESSION_CONTEXT:
+                SESSION_CONTEXT[sid] = deque(maxlen=MAX_CONTEXT)
+            context = list(SESSION_CONTEXT[sid])
+
+            reply, action = self._process(text, context=context)
+
+            # 记住本轮话题
+            topic = self._extract_topic(text)
+            if topic:
+                SESSION_CONTEXT[sid].append(topic)
+
             self._json({
                 "reply": reply, "action": action,
                 "stats": f"数据库: {db.count()} 条关系 | 模板: {len(reg.templates)} 个",
@@ -237,8 +255,28 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"reply": f"错误: {e}", "error": True})
 
-    def _process(self, text: str) -> tuple[str, str]:
-        """处理自然语言——命令路由 + 意图分类"""
+    def _extract_topic(self, text: str) -> str:
+        """从一句话提取核心话题词"""
+        # 去问号/语气词
+        clean = text.rstrip('?？吗').strip()
+        # "你了解X吗" → X
+        m = re.search(r'(?:了解|知道|懂|认识)(.+)', clean)
+        if m: return m.group(1).strip()
+        # "X是什么" → X
+        m = re.search(r'(.+)是什么', clean)
+        if m: return m.group(1).strip()
+        # 纯名词
+        if re.match(r'^[\u4e00-\u9fff\w]{2,10}$', clean):
+            return clean
+        # 取最后一个有意义的词
+        words = re.findall(r'[\u4e00-\u9fff\w]{2,}', clean)
+        for w in words:
+            if w not in ('什么','吗','可以','怎么','如何','为什么','了解','知道'):
+                return w
+        return ""
+
+    def _process(self, text: str, context: list[str] = None) -> tuple[str, str]:
+        """处理自然语言——命令路由 + 意图分类 + 上下文感知"""
 
         # ── 0. 教学命令路由 (优先级最高) ──
         # learnw <词> [同义词 <词>]
@@ -291,9 +329,9 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
             return ("好的, 我在听。有什么想告诉我的吗?", "ack")
 
         # ── 3. 元语句/对话——不该学 ──
-        if any(text.startswith(p) for p in ['你', '您', '我', '我们', '咱', '为什么', '怎么', '请问', '谢谢', '感谢']):
+        if any(text.startswith(p) for p in ['你', '您', '我', '我们', '咱', '它', '他', '她', '为什么', '怎么', '请问', '谢谢', '感谢']):
             if '你' in text and ('吗' in text or '?' in text or '？' in text or '吧' in text):
-                return self._conversational_reply(text)
+                return self._conversational_reply(text, context)
             # 问候语: 优先查偏好, 不再硬编码单一回复
             greeting_keywords = ['你好', 'hello', 'hi', '嗨', '您好', '早上好', '晚上好', 'hey', '在吗', '在不在', '早上', '晚安']
             if any(kw in text for kw in greeting_keywords):
@@ -315,9 +353,9 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                 return (["不客气 🙂", "没事, 应该的!", "随时为你效劳~"][hash(text) % 3], "thanks")
             # 闲聊口语: 提前拦截, 别让它们落到事实解析
             if any(w in text for w in ('真的假的', '哈哈哈', '哈哈', '笑死', '😂', '好吧', '嗯嗯', '哦哦', '好的', '行吧', '知道了')):
-                return self._conversational_reply(text)
+                return self._conversational_reply(text, context)
             # 其他元语句: 对话回复, 不强学
-            return self._conversational_reply(text)
+            return self._conversational_reply(text, context)
 
         # ── 4. 问题——查 KG (中英文, 在事实学习之前!) ──
         tl = text.lower().strip()
@@ -470,7 +508,7 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                 return (f"不太确定你要表达的关系, 但我联想到:\n" + "\n".join(f"  · {h}" for h in hints[:3]), "semantic_hint")
 
         # ── 6. 默认: 对话回复 ──
-        return self._conversational_reply(text)
+        return self._conversational_reply(text, context)
 
     def _cmd_learn_word(self, word: str) -> tuple[str, str]:
         """learnw: 学习一个词"""
@@ -616,8 +654,21 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
                 return r.object
         return ""
 
-    def _conversational_reply(self, text: str) -> tuple[str, str]:
+    def _conversational_reply(self, text: str, context: list[str] = None) -> tuple[str, str]:
         """对话回复——从 KG 取身份, 不再硬编码"""
+        # 代词解析: "它/这/那" → 最近话题词(不级联)
+        if context:
+            for w in ('它', '他', '她'):
+                if w in text:
+                    for prev in reversed(context):
+                        # 只取话题词本身, 不用前一轮的完整句子
+                        if prev and len(prev) >= 2 and prev not in ('它','他','她'):
+                            resolved_text = text.replace(w, prev)
+                            # 重新走完整处理流程 (但不带 context 避免循环)
+                            reply, action = self._process(resolved_text, context=None)
+                            return (reply, action)
+                    break
+
         # 偏好优先
         for r in kg.relations:
             if r.predicate == "REPLIES_WITH":
@@ -672,16 +723,21 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
         m = _re.search(r'(?:了解|知道|懂|认识)(.+)', text)
         if m:
             topic = m.group(1).strip().rstrip('吗?？') or text
-            # 查 KG
             for r in kg.relations:
                 if r.subject in topic or topic in r.object:
                     return (f"我知道一点: {r.subject} --[{r.predicate}]--> {r.object}", "kg_hint")
             return (f"我还不太了解「{topic}」😅 你能教我吗? 比如 '{topic}是X'", "knowledge_gap")
-        # 纯名词: "塔罗牌" / "黑洞"
+
+        # 纯名词——先查上下文是不是同一个话题
         if _re.match(r'^[\u4e00-\u9fff\w]{2,10}$', text):
             for r in kg.relations:
                 if r.subject == text:
                     return (f"我知道 {text}: {r.predicate} {r.object}", "kg_hint")
+            # 检查上下文: 刚才是不是在聊这个
+            if context:
+                for prev_topic in reversed(context):
+                    if prev_topic in text or text in prev_topic:
+                        return (f"嗯, 我们刚聊到「{prev_topic}」呢。你对它有什么想说的?", "context_match")
             return (f"「{text}」? 还不太了解呢。你能教我吗?", "knowledge_gap")
 
         # 兜底——不再是一句死话
