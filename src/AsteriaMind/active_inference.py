@@ -173,11 +173,12 @@ class ActiveInferenceEngine:
     def choose_action(self, candidate_edges: list[tuple] = None,
                       top_k: int = 3) -> list[tuple]:
         """
-        主动推理——选择能最小化自由能的行动。
+        BudgetContest — 主动推理 + 成本约束。
 
-        如果没有候选边，从星图中自动搜集。
+        Score = (uncertainty_reduction × importance) / interaction_cost
 
-        返回: [(subj, pred, obj, information_gain), ...]
+        不是"哪个信息增益最大"
+        而是"哪个行动性价比最高"
         """
         if candidate_edges is None:
             if self.star_map:
@@ -190,18 +191,25 @@ class ActiveInferenceEngine:
         if not candidate_edges:
             return []
 
-        # 计算每条边的信息增益
         scored = []
         for subj, pred, obj in candidate_edges:
             edge = self.get_or_create_belief(subj, pred, obj)
             ig = edge.expected_information_gain()
             fe = edge.free_energy()
-            # 行动优先级 = 信息增益 - 自由能惩罚
-            score = ig - fe * 0.3
-            scored.append((subj, pred, obj, ig, fe, score, edge.uncertainty))
 
-        scored.sort(key=lambda x: -x[5])  # 按 score 降序
-        return [(s[0], s[1], s[2], s[3]) for s in scored[:top_k]]
+            # 行动成本: 不确定的边需要更多交互轮次验证
+            cost = 1.0 + edge.uncertainty * 3.0
+
+            # 重要度: 共现次数多的边更重要
+            importance = math.log(edge.precision + 2)
+
+            # BudgetContest 得分
+            score = (ig * importance) / cost
+
+            scored.append((subj, pred, obj, ig, fe, score, edge.uncertainty, edge.mean))
+
+        scored.sort(key=lambda x: -x[5])
+        return [(s[0], s[1], s[2], s[3], s[5]) for s in scored[:top_k]]
 
     def most_uncertain_edges(self, top_k: int = 5) -> list[dict]:
         """

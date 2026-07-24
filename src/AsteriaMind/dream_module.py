@@ -25,6 +25,15 @@ class DreamModule:
     def __init__(self, star_map=None):
         self.star_map = star_map
         self.hypothesis_pool: list[dict] = []
+        # H1-H6 假说生成策略池
+        self.strategies = {
+            "causal":       {"label": "因果推断", "base_confidence": 0.25, "generated": 0, "accepted": 0},
+            "correlation":  {"label": "相关发现", "base_confidence": 0.20, "generated": 0, "accepted": 0},
+            "analogy":      {"label": "类比迁移", "base_confidence": 0.20, "generated": 0, "accepted": 0},
+            "transitive":   {"label": "传递推理", "base_confidence": 0.30, "generated": 0, "accepted": 0},
+            "contrarian":   {"label": "反向质疑", "base_confidence": 0.15, "generated": 0, "accepted": 0},
+            "exploratory":  {"label": "随机探索", "base_confidence": 0.10, "generated": 0, "accepted": 0},
+        }
 
     def dream(self) -> list[dict]:
         """
@@ -102,6 +111,7 @@ class DreamModule:
                             continue  # 就是聚类键本身, 跳过
                         hyps.append({
                             "type": "analogy",
+                            "strategy": "analogy",
                             "subject": b,
                             "predicate": trait_pred,
                             "object": trait_obj,
@@ -150,6 +160,7 @@ class DreamModule:
                     if not already_exists:
                         hyps.append({
                             "type": "transitive",
+                            "strategy": "transitive",
                             "subject": subj,
                             "predicate": "IS_A",
                             "object": transitive_obj,
@@ -197,3 +208,14 @@ class DreamModule:
                 f"{hyp['subject']}{hyp['predicate']}{hyp['object']}"
             )
         hyp["status"] = "confirmed" if accepted else "corrected"
+        # 更新策略统计
+        strategy = hyp.get("strategy", "unknown")
+        if strategy in self.strategies:
+            if accepted:
+                self.strategies[strategy]["accepted"] += 1
+            self.strategies[strategy]["generated"] = max(
+                self.strategies[strategy].get("generated", 0),
+                self.hypothesis_pool.count(
+                    lambda h: h.get("strategy") == strategy
+                )
+            )
