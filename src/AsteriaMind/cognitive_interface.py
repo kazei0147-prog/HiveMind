@@ -601,6 +601,12 @@ class CognitiveInterface:
         from AsteriaMind.cognitive_star_map import CognitiveStarMap
         self.cognitive_star_map = CognitiveStarMap()
 
+    def consolidate(self) -> dict:
+        """触发记忆巩固——后台低频调用"""
+        from AsteriaMind.memory_consolidation import MemoryConsolidation
+        mc = MemoryConsolidation(self.cognitive_star_map)
+        return mc.consolidate()
+
         # 注册: 已学到的语言原语
         self._load_kg_primitives()
 

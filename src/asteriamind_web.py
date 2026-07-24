@@ -768,6 +768,22 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    import threading
+
+    # 后台记忆巩固线程: 每 120 秒跑一次
+    def _consolidation_loop():
+        while True:
+            time.sleep(120)
+            try:
+                mc_result = ci.consolidate()
+                print(f"\n  🌙 Memory Consolidation: "
+                      f"clusters={mc_result.get('clusters_found',0)} "
+                      f"contradictions={mc_result.get('contradictions_found',0)}")
+            except Exception as e:
+                print(f"\n  ⚠️ Consolidation error: {e}")
+
+    threading.Thread(target=_consolidation_loop, daemon=True).start()
+
     port = 8866
     print(f"\n╔══════════════════════════════╗")
     print(f"║  🧠 AsteriaMind Web Chat    ║")
