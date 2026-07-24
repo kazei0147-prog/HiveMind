@@ -229,12 +229,13 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
             CONV_MEMORY.add(sid, "user", text, topic)
             context_str = CONV_MEMORY.get_context_string(sid, text)
 
-            reply, action = self._process(text, context=context_str)
+            reply, action, cognitive = self._process(text, context=context_str)
 
             CONV_MEMORY.add(sid, "am", reply, topic)
 
             self._json({
                 "reply": reply, "action": action,
+                "cognitive": cognitive,
                 "stats": f"数据库: {db.count()} 条关系 | 模板: {len(reg.templates)} 个",
             })
         except Exception as e:
@@ -297,6 +298,7 @@ class AMHandler(http.server.BaseHTTPRequestHandler):
         loop = ci.mother.loop(result.get("semantic"), result.get("pragmatic"), text)
         reply = loop.get("reply", "?")
         action = loop.get("action", "unknown")
+        return (reply, action, loop.get("cognitive", {}))
         return (reply, result.get("action", "unknown"))
 
     def _process_legacy(self, text: str) -> tuple[str, str]:

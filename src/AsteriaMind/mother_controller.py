@@ -11,6 +11,58 @@ from AsteriaMind.meta_cognition import MetaCognition
 from AsteriaMind.meta_reasoning import MetaReasoningLayer
 
 
+def _structure_to_language(cog: dict) -> str:
+    """
+    极简语言生成器——从结构化认知输出到自然语言。
+
+    不是模板: 是从 language_traces 检索句式骨架 + 替换实体。
+    """
+    action = cog.get("action", "unknown")
+    subj = cog.get("subject", "")
+    pred = cog.get("relation", "")
+    obj = cog.get("object", "") or ""
+    conf = cog.get("confidence", 0.5)
+    evidence = cog.get("evidence", [])
+    diffs = cog.get("differences", [])
+
+    if action == "fact_learn":
+        parts = [f"✅ 学到了: {subj}"]
+        if pred:
+            parts.append(pred)
+        if obj:
+            parts.append(obj)
+        return " ".join(parts)
+
+    if action == "info_request":
+        if not evidence:
+            return f"关于「{subj}」我还不了解。你能教我吗?"
+        if conf > 0.5:
+            head = "对" if conf > 0.7 else "应该对"
+            parts = [f"{head}——"]
+            # 引用证据
+            ev_short = evidence[:2]
+            parts.append(f"比如「{ev_short[0]}」")
+            if len(ev_short) > 1:
+                parts.append(f"和「{ev_short[1]}」都知道;")
+            # 差异
+            if diffs:
+                parts.append(f"但{diffs[0]}不同。")
+            parts.append(f"(置信 {conf:.0%})")
+            return " ".join(parts)
+        elif conf > 0.3:
+            return f"不太确定——关于「{subj}」和「{obj}」的关系。你能确认吗?"
+        else:
+            return f"关于「{subj}」我还不知道。你能教我吗?"
+
+    if action == "self_directed":
+        return f"我是 AsteriaMind。{evidence[0] if evidence else ''}"
+
+    if action == "uncertain" or action == "observe":
+        return f"我不太确定你的意思。试试说「X是Y」或「X会Y吗」?"
+
+    return f"[{action}] {subj} {pred} {obj}"
+
+
 class MotherController:
     """
     主循环——不控制模块内部, 只决定每轮执行顺序。
@@ -67,41 +119,44 @@ class MotherController:
         action = arbitration["action"]
         confidence = arbitration["confidence"]
 
-        # ── 3. 根据仲裁结果选择行动 ──
-        reply = ""
-        store_feedback = None
+        # ── 3. 产生结构化认知输出 (不是文本) ──
+        cognitive_output = {
+            "subject": subj,
+            "relation": pred,
+            "object": obj,
+            "confidence": confidence,
+            "action": action,
+            "evidence": [],
+            "differences": [],
+        }
 
         if action == "fact_learn":
-            # 学习路径: 存星图 + 更新信念
             if subj and pred and obj and self.star_map:
                 self.star_map.store(subj, pred, obj, "confirmed", text)
                 self.active_inference.update_from_feedback(subj, pred, obj, True)
-            reply = f"✅ 学会了: {subj} {pred} {obj}"
-            store_feedback = ("confirmed", True)
+                cognitive_output["evidence"] = [f"{subj} {pred} {obj} (新学习)"]
 
-        elif action == "info_request":
-            if belief and belief["belief"] > 0.5:
-                reply = f"对——这个说法我比较确定 (信念 {belief['belief']:.0%})"
-            elif belief and belief["belief"] < 0.5:
-                reply = f"不对——这个说法我比较怀疑 (信念 {belief['belief']:.0%})"
-            elif subj and pred and obj and self.star_map:
-                # 星图查询: 找最近的认知痕迹
-                er = self.star_map.emergent_reply(text, subj, pred, obj)
-                reply = er.get("reply", f"关于 {subj} 我还不知道。")
-            else:
-                reply = f"我还不确定——你能教我吗?"
+        elif action == "info_request" and subj and pred and obj and self.star_map:
+            er = self.star_map.emergent_reply(text, subj, pred, obj)
+            cognitive_output["confidence"] = er.get("confidence", confidence)
+            cognitive_output["evidence"] = [
+                f"{e['subj']} {e.get('pred',pred)} {e['obj']}" 
+                for e in er.get("evidence", [])[:3]
+            ]
+            # 差异: 共享谓词但对象不同的痕迹
+            if cognitive_output["evidence"]:
+                cognitive_output["differences"] = [
+                    e['obj'] for e in er.get("evidence", [])[:3]
+                    if e.get('obj') != obj
+                ]
 
         elif action == "self_directed":
-            facts = self.star_map.count() if self.star_map else 0
-            reply = f"我是 AsteriaMind, 星图有 {facts} 条认知痕迹。"
+            cognitive_output["evidence"] = [f"星图痕迹: {self.star_map.count() if self.star_map else 0}"]
 
-        elif action == "uncertain":
-            reply = f"我不太确定你的意思 😅"
+        # ── 4. 语言生成: 从结构到文本 ──
+        reply = _structure_to_language(cognitive_output)
 
-        else:
-            reply = f"我听到了。(action={action})"
-
-        # ── 4. MetaReasoning: 记录预测误差 ──
+        # ── 5. MetaReasoning: 记录预测误差 ──
         if belief and belief.get("belief") is not None:
             predicted = belief["belief"]
             # 实际反馈: 如果用户继续这条对话且没有纠正 → 视为 confirmed
@@ -119,6 +174,7 @@ class MotherController:
             "confidence": confidence,
             "belief": belief,
             "arbitration": arbitration,
+            "cognitive": cognitive_output,
         }
 
     def get_health(self) -> dict:
