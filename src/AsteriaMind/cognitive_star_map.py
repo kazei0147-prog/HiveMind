@@ -14,60 +14,98 @@ from typing import Optional
 # ═══════════════════════════════════════
 
 def _build_cooccur_from_traces(conn: sqlite3.Connection):
-    """从 cognitive_traces 构建/增量更新共现表"""
+    """从 cognitive_traces 构建/升级共现表"""
     cur = conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='co_occurrence'")
     if cur.fetchone():
-        return  # 已存在
+        # 检查是否需要升级 schema (old: count only, new: weight/confidence/evidence/last_update)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(co_occurrence)")}
+        if "confidence" not in cols:
+            cur.execute("ALTER TABLE co_occurrence ADD COLUMN confidence REAL DEFAULT 1.0")
+            cur.execute("ALTER TABLE co_occurrence ADD COLUMN evidence_count INTEGER DEFAULT 1")
+            cur.execute("ALTER TABLE co_occurrence ADD COLUMN last_update REAL DEFAULT 0")
+            # 从已有 count 初始化
+            cur.execute("UPDATE co_occurrence SET evidence_count=count, confidence=1.0, last_update=0")
+            conn.commit()
+        return
+
     cur.execute("""
         CREATE TABLE co_occurrence (
             entity_a TEXT NOT NULL,
             entity_b TEXT NOT NULL,
-            count INTEGER DEFAULT 1,
+            weight INTEGER DEFAULT 1,
+            confidence REAL DEFAULT 1.0,
+            evidence_count INTEGER DEFAULT 1,
+            last_update REAL DEFAULT 0,
             PRIMARY KEY (entity_a, entity_b)
         )
     """)
-    for row in cur.execute("SELECT subj, pred, obj FROM cognitive_traces"):
+    for row in cur.execute("SELECT subj, pred, obj, feedback FROM cognitive_traces"):
         subj, pred, obj = (row[0] or "").strip(), (row[1] or "").strip(), (row[2] or "").strip()
-        _incr_cooccur(cur, subj, pred)
-        _incr_cooccur(cur, subj, obj)
-        _incr_cooccur(cur, pred, obj)
+        fb = row[3] or "confirmed"
+        _incr_cooccur(cur, subj, pred, fb, time.time())
+        _incr_cooccur(cur, subj, obj, fb, time.time())
+        _incr_cooccur(cur, pred, obj, fb, time.time())
     conn.commit()
 
 
-def _incr_cooccur(cur, a: str, b: str):
+DECAY_LAMBDA = 0.01  # 衰减系数: 越大遗忘越快
+
+
+def _incr_cooccur(cur, a: str, b: str, feedback: str = "confirmed", ts: float = 0):
+    """更新边权: weight+1, confidence 根据反馈调整, evidence_count+1"""
     if not a or not b or a == b:
         return
     if a > b:
         a, b = b, a
+    conf_boost = 1.0 if feedback == "confirmed" else (0.3 if feedback == "corrected" else 0.5)
+    ts = ts or time.time()
     cur.execute(
-        "INSERT INTO co_occurrence(entity_a,entity_b,count) VALUES(?,?,1) "
-        "ON CONFLICT(entity_a,entity_b) DO UPDATE SET count=count+1",
-        (a, b))
+        "INSERT INTO co_occurrence(entity_a,entity_b,weight,confidence,evidence_count,last_update) "
+        "VALUES(?,?,1,?,1,?) "
+        "ON CONFLICT(entity_a,entity_b) DO UPDATE SET "
+        "weight=weight+1, "
+        "confidence=(confidence*evidence_count+?)/(evidence_count+1), "
+        "evidence_count=evidence_count+1, "
+        "last_update=?",
+        (a, b, conf_boost, ts, conf_boost, ts))
 
 
-def _entity_vector(conn, entity: str) -> dict[str, int]:
-    """单实体共现向量"""
+def _effective_weight(row) -> float:
+    """动态边权: weight × confidence × time_decay"""
+    weight = row[0] if isinstance(row, tuple) else row["weight"]
+    conf = row[1] if isinstance(row, tuple) else row["confidence"]
+    last_up = row[2] if isinstance(row, tuple) else row["last_update"]
+    decay = math.exp(-DECAY_LAMBDA * (time.time() - (last_up or 0)) / 86400)  # 按天衰减
+    return weight * conf * decay
+
+
+def _entity_vector(conn, entity: str) -> dict[str, float]:
+    """单实体共现向量——用有效权重"""
     vec = {}
+    now = time.time()
+    decay_factor = math.exp(-DECAY_LAMBDA * now / 86400)
     for row in conn.execute(
-        "SELECT entity_b, count FROM co_occurrence WHERE entity_a=? "
-        "UNION ALL SELECT entity_a, count FROM co_occurrence WHERE entity_b=?",
+        "SELECT entity_b, weight, confidence, last_update FROM co_occurrence WHERE entity_a=? "
+        "UNION ALL SELECT entity_a, weight, confidence, last_update FROM co_occurrence WHERE entity_b=?",
         (entity, entity)):
-        vec[row[0]] = row[1]
+        w = _effective_weight(row)
+        if w > 0.01:
+            vec[row[0]] = w
     return vec
 
 
-def _query_vector(conn, subj: str, obj: str, pred: str = "") -> dict[str, int]:
-    """组合查询向量 (多实体共现合并)"""
-    vec: dict[str, int] = {}
+def _query_vector(conn, subj: str, obj: str, pred: str = "") -> dict[str, float]:
+    """组合查询向量"""
+    vec: dict[str, float] = {}
     for e in (subj, obj, pred):
         if e:
             for k, v in _entity_vector(conn, e).items():
-                vec[k] = vec.get(k, 0) + v
+                vec[k] = vec.get(k, 0.0) + v
     return vec
 
 
-def _sparse_cosine(v1: dict[str, int], v2: dict[str, int]) -> float:
+def _sparse_cosine(v1: dict[str, float], v2: dict[str, float]) -> float:
     """稀疏向量余弦相似度"""
     if not v1 or not v2:
         return 0.0
@@ -130,18 +168,19 @@ class CognitiveStarMap:
         "哺乳动物" → [猫, 狗, 海豚, 蝙蝠, ...]
         不在每次检索时扫全表，只激活局部子图。
         """
-        neighbors = set(entities)
+        neighbors = set(e for e in entities if e)
         cur = self.conn.cursor()
         for e in entities:
             if not e: continue
-            for row in cur.execute(
-                "SELECT entity_b FROM co_occurrence WHERE entity_a=? "
-                "ORDER BY count DESC LIMIT ?", (e, top_k)):
-                neighbors.add(row[0])
-            for row in cur.execute(
-                "SELECT entity_a FROM co_occurrence WHERE entity_b=? "
-                "ORDER BY count DESC LIMIT ?", (e, top_k)):
-                neighbors.add(row[0])
+            for sql, col in (
+                ("SELECT entity_b FROM co_occurrence WHERE entity_a=? "
+                 "ORDER BY weight*confidence DESC LIMIT ?", 0),
+                ("SELECT entity_a FROM co_occurrence WHERE entity_b=? "
+                 "ORDER BY weight*confidence DESC LIMIT ?", 0),
+            ):
+                for row in cur.execute(sql, (e, top_k)):
+                    if row[col] and row[col] != e:
+                        neighbors.add(row[col])
         return neighbors
 
     def _indexed_scan(self, qv: dict, activated: set[str]) -> list:
@@ -185,10 +224,11 @@ class CognitiveStarMap:
                 "INSERT INTO language_traces(sentence,subj,pred,obj,cognitive_id,pattern_type,timestamp) "
                 "VALUES(?,?,?,?,?,?,?)",
                 (text, subj, pred, obj, cog_id, lt, time.time()))
-        # 更新共现
-        _incr_cooccur(self.conn.cursor(), subj, pred)
-        _incr_cooccur(self.conn.cursor(), subj, obj)
-        _incr_cooccur(self.conn.cursor(), pred, obj)
+        # 更新共现边权
+        ts = time.time()
+        _incr_cooccur(self.conn.cursor(), subj, pred, feedback, ts)
+        _incr_cooccur(self.conn.cursor(), subj, obj, feedback, ts)
+        _incr_cooccur(self.conn.cursor(), pred, obj, feedback, ts)
         self.conn.commit()
         return cog_id
 
